@@ -16,6 +16,20 @@
   const hpBar = document.querySelector(".hpbar");
   const finalScoreEl = document.getElementById("finalScore");
 
+  // On-screen controls
+  const joystickEl = document.getElementById("joystick");
+  const joyStickKnob = joystickEl?.querySelector(".joy-stick");
+  const fireBtn = document.getElementById("fireBtn");
+
+  const joystick = {
+    active: false,
+    dx: 0,
+    dy: 0,
+    pointerId: null,
+  };
+
+  const heldFirePointers = new Set();
+
   // Canvas size + DPR for crisp rendering
   let cw = 0,
     ch = 0,
@@ -52,6 +66,8 @@
     spawnTimer: 0,
     isFiring: false,
     t: 0, // seconds
+    dead: false,
+    deathTimer: 0,
   };
 
   // Player
@@ -78,6 +94,7 @@
   const pBullets = []; // player's bullets
   const eBullets = []; // enemy bullets
   const enemies = [];
+  const particles = []; // explosion particles
 
   // Stars background
   let stars = [];
@@ -136,6 +153,107 @@
   });
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 
+  // Setup on-screen joystick
+  function joyUpdateFromEvent(e) {
+    if (!joystickEl || !joystick.active || e.pointerId !== joystick.pointerId) return;
+    const rect = joystickEl.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    const knobR = joyStickKnob ? joyStickKnob.offsetWidth * 0.5 : 0;
+    const maxR = Math.max(10, Math.min(rect.width, rect.height) * 0.5 - knobR);
+
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const ratio = Math.min(1, len / maxR);
+      dx = (dx / len) * ratio;
+      dy = (dy / len) * ratio;
+    } else {
+      dx = 0;
+      dy = 0;
+    }
+
+    joystick.dx = clamp(dx, -1, 1);
+    joystick.dy = clamp(dy, -1, 1);
+
+    if (joyStickKnob) {
+      const px = joystick.dx * maxR;
+      const py = joystick.dy * maxR;
+      joyStickKnob.style.transform = "translate(calc(-50% + " + px + "px), calc(-50% + " + py + "px))";
+    }
+  }
+
+  function joyStart(e) {
+    if (!joystickEl || joystick.active) return;
+    joystick.active = true;
+    joystick.pointerId = e.pointerId;
+    joystick.dx = 0;
+    joystick.dy = 0;
+    if (joystickEl.setPointerCapture) {
+      try { joystickEl.setPointerCapture(e.pointerId); } catch {}
+    }
+    joyUpdateFromEvent(e);
+    e.preventDefault();
+  }
+
+  function joyMove(e) {
+    if (!joystick.active) return;
+    joyUpdateFromEvent(e);
+    e.preventDefault();
+  }
+
+  function joyEnd(e) {
+    if (!joystick.active || e.pointerId !== joystick.pointerId) return;
+    joystick.active = false;
+    joystick.pointerId = null;
+    joystick.dx = 0;
+    joystick.dy = 0;
+    if (joyStickKnob) {
+      joyStickKnob.style.transform = "translate(-50%, -50%)";
+    }
+    e.preventDefault();
+  }
+
+  joystickEl?.addEventListener("pointerdown", joyStart, { passive: false });
+  window.addEventListener("pointermove", joyMove, { passive: false });
+  window.addEventListener("pointerup", joyEnd, { passive: false });
+  window.addEventListener("pointercancel", joyEnd, { passive: false });
+  window.addEventListener("blur", () => {
+    // reset joystick on blur
+    joystick.active = false;
+    joystick.pointerId = null;
+    joystick.dx = 0;
+    joystick.dy = 0;
+    if (joyStickKnob) joyStickKnob.style.transform = "translate(-50%, -50%)";
+  });
+
+  // Setup fire button to toggle continuous firing while pressed
+  function fireDown(e) {
+    heldFirePointers.add(e.pointerId);
+    state.isFiring = heldFirePointers.size > 0;
+    fireBtn?.classList.add("active");
+    e.preventDefault();
+  }
+  function fireUp(e) {
+    if (heldFirePointers.has(e.pointerId)) {
+      heldFirePointers.delete(e.pointerId);
+      state.isFiring = heldFirePointers.size > 0;
+      if (heldFirePointers.size === 0) fireBtn?.classList.remove("active");
+    }
+  }
+
+  fireBtn?.addEventListener("pointerdown", fireDown, { passive: false });
+  window.addEventListener("pointerup", fireUp, { passive: false });
+  window.addEventListener("pointercancel", fireUp, { passive: false });
+  window.addEventListener("blur", () => {
+    heldFirePointers.clear();
+    state.isFiring = false;
+    fireBtn?.classList.remove("active");
+  });
+
   // Keyboard input (arrow keys)
   const keys = { left: false, right: false, up: false, down: false };
   function handleKey(e, down) {
@@ -180,9 +298,12 @@
     state.spawnTimer = 0;
     state.isFiring = false;
     state.t = 0;
+    state.dead = false;
+    state.deathTimer = 0;
     enemies.length = 0;
     pBullets.length = 0;
     eBullets.length = 0;
+    particles.length = 0;
     player.x = cw * 0.5;
     player.y = ch * 0.75;
     player.fireCooldown = 0;
@@ -280,9 +401,78 @@
     eBullets.push({ x: ex, y: ey, vx, vy, r: 3.5 });
   }
 
+  // Explosions / Particles
+  function spawnExplosion(x, y, count = 30, kind = "enemy") {
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spd = rand(60, kind === "player" ? 420 : 300);
+      const vx = Math.cos(ang) * spd;
+      const vy = Math.sin(ang) * spd;
+      const life = rand(0.4, kind === "player" ? 1.2 : 0.8);
+      const size = rand(2, kind === "player" ? 5 : 4);
+      const palette =
+        kind === "player"
+          ? ["#b7f7ff", "#2ee6ff", "#e9faff", "#ffffff"]
+          : ["#ff8fb6", "#ff3b81", "#ffd1e2", "#ffffff"];
+      const color = palette[Math.floor(Math.random() * palette.length)];
+      particles.push({ x, y, vx, vy, life, max: life, size, color });
+    }
+  }
+
+  function explodeEnemy(e) {
+    const count = Math.floor(16 + e.r * 0.9);
+    spawnExplosion(e.x, e.y, count, "enemy");
+  }
+
+  function triggerPlayerDeath() {
+    if (state.dead) return;
+    state.dead = true;
+    state.deathTimer = 1.2;
+    state.isFiring = false;
+    spawnExplosion(player.x, player.y, 90, "player");
+  }
+
+  function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life -= dt;
+      if (p.life <= 0) {
+        particles.splice(i, 1);
+        continue;
+      }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vx *= 0.985;
+      p.vy += 140 * dt; // slight gravity
+      if (p.x < -60 || p.x > cw + 60 || p.y < -60 || p.y > ch + 60) {
+        particles.splice(i, 1);
+      }
+    }
+  }
+
+  function drawParticles() {
+    for (let p of particles) {
+      const a = Math.max(0, p.life / p.max);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * (0.6 + 0.4 * a), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Update + Draw
   function update(dt) {
     state.t += dt;
+
+    if (state.dead) {
+      state.deathTimer -= dt;
+      if (state.deathTimer <= 0) {
+        gameOver();
+        return;
+      }
+    }
 
     // Stars
     for (let s of stars) {
@@ -298,8 +488,18 @@
 
     // Player movement: arrow keys OR smooth follow to pointer
     const margin = 16;
-    const kx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-    const ky = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+    if (!state.dead) {
+    let kx, ky;
+    if (joystick.active) {
+      // Analog from on-screen joystick
+      kx = joystick.dx;
+      ky = joystick.dy;
+    } else {
+      // Keyboard arrows
+      kx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      ky = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+    }
+
     if (kx !== 0 || ky !== 0) {
       const speed = 420; // px per second
       const len = Math.hypot(kx, ky) || 1;
@@ -316,6 +516,7 @@
     }
     player.x = clamp(player.x, margin, cw - margin);
     player.y = clamp(player.y, margin + 56, ch - margin); // avoid top HUD overlap too much
+    }
 
     // Wingmen follow formation
     for (let i = 0; i < wingmen.length; i++) {
@@ -329,6 +530,7 @@
     }
 
     // Player firing
+    if (!state.dead) {
     player.fireCooldown -= dt;
     if (state.isFiring && player.fireCooldown <= 0) {
       shootPlayer();
@@ -338,13 +540,16 @@
       const baseInterval = 0.14; // seconds
       player.fireCooldown = Math.max(0.07, baseInterval - getDifficulty() * 0.02);
     }
+    }
 
     // Spawn enemies
+    if (!state.dead) {
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) {
       spawnEnemy();
       const base = rand(0.4, 1.0);
       state.spawnTimer = Math.max(0.2, base / (0.7 + getDifficulty() * 0.6));
+    }
     }
 
     // Update enemies
@@ -385,6 +590,8 @@
       }
     }
 
+    updateParticles(dt);
+
     // Collisions: player bullets vs enemies
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
@@ -400,6 +607,7 @@
         }
       }
       if (e.hp <= 0) {
+        explodeEnemy(e);
         enemies.splice(i, 1);
         state.score += 100;
         updateHUD();
@@ -407,8 +615,9 @@
       }
       // Enemy collides with player body
       const rr2 = (e.r + player.r) * (e.r + player.r);
-      if (dist2(e.x, e.y, player.x, player.y) <= rr2) {
+      if (!state.dead && dist2(e.x, e.y, player.x, player.y) <= rr2) {
         damagePlayer();
+        explodeEnemy(e);
         enemies.splice(i, 1);
       }
     }
@@ -417,7 +626,7 @@
     for (let i = eBullets.length - 1; i >= 0; i--) {
       const b = eBullets[i];
       const rr = (player.r + b.r) * (player.r + b.r);
-      if (dist2(player.x, player.y, b.x, b.y) <= rr) {
+      if (!state.dead && dist2(player.x, player.y, b.x, b.y) <= rr) {
         eBullets.splice(i, 1);
         damagePlayer();
       }
@@ -431,7 +640,7 @@
     player.invUntil = t + 1200;
     updateHUD();
     if (state.lives <= 0) {
-      gameOver();
+      triggerPlayerDeath();
     }
   }
 
@@ -468,13 +677,16 @@
       drawEnemy(e);
     }
 
+    // Explosions
+    drawParticles();
+
     // Wingmen
     for (let wm of wingmen) {
       drawWingman(wm);
     }
 
     // Player
-    drawPlayer();
+    if (!state.dead) drawPlayer();
   }
 
   function drawPlayer() {
