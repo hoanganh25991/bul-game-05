@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hạm Đội Xuất Kích</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="hud">
+      <div class="left">
+        <span>Điểm: </span><span id="score">0</span>
+      </div>
+      <div class="right">
+        <span>HP:</span>
+        <div class="hpbar" aria-label="HP" role="progressbar" aria-valuemin="0" aria-valuemax="3" aria-valuenow="3">
+          <div id="hpFill" class="hpbar-fill" style="width: 100%;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="container">
+      <canvas id="game"></canvas>
+
+      <div id="overlay" class="overlay">
+        <h1 id="title">Hạm Đội Xuất Kích</h1>
+        <p>Di chuột hoặc phím mũi tên để điều khiển tàu. Nhấn và giữ phím Space để bắn.</p>
+        <button id="startBtn">Bắt đầu</button>
+      </div>
+
+      <div id="gameover" class="overlay hidden">
+        <h1>Thua cuộc!</h1>
+        <p>Điểm của bạn: <span id="finalScore">0</span></p>
+        <button id="restartBtn">Chơi lại</button>
+      </div>
+    </div>
+
+    <script src="game.js"></script>
+  </body>
+</html>
