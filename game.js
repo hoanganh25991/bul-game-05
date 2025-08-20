@@ -4,6 +4,11 @@
 (() => {
   "use strict";
 
+  // Early declarations to avoid TDZ before resize() calls updateScale
+  var scale = 1;
+  const BASE_H = 900;
+  const TIME_SCALE = 0.5; // Slow down game logic to half speed
+
   // DOM
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
@@ -18,8 +23,9 @@
 
   // On-screen controls
   const joystickEl = document.getElementById("joystick");
-  const joyStickKnob = joystickEl?.querySelector(".joy-stick");
+  const joyStickKnob = joystickEl ? joystickEl.querySelector(".joy-stick") : null;
   const fireBtn = document.getElementById("fireBtn");
+  const mgBtn = document.getElementById("mgBtn");
 
   const joystick = {
     active: false,
@@ -42,12 +48,13 @@
     canvas.width = Math.floor(cw * dpr);
     canvas.height = Math.floor(ch * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    updateScale();
   }
   window.addEventListener("resize", resize, { passive: true });
   resize();
 
   // Utils
-  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   const rand = (min, max) => min + Math.random() * (max - min);
   const nowMs = () => performance.now();
   const dist2 = (x1, y1, x2, y2) => {
@@ -56,8 +63,19 @@
     return dx * dx + dy * dy;
   };
 
+  // Responsive scale helpers
+  // BASE_H and scale declared above to avoid TDZ in resize()
+  const gs = (v) => v * scale; // scale numeric to current screen
+  function updateScale() {
+    scale = clamp(ch / BASE_H, 0.7, 1.6);
+  }
+  function getHudHeight() {
+    const hud = document.querySelector(".hud");
+    return hud ? hud.offsetHeight : 56;
+  }
+
   // Game state
-  const MAX_LIVES = 3;
+  const MAX_LIVES = 100;
   const state = {
     running: false,
     score: 0,
@@ -68,15 +86,22 @@
     t: 0, // seconds
     dead: false,
     deathTimer: 0,
+    enemiesSpawned: 0,
+    totalToSpawn: 30,
+    won: false,
+    mgActive: false,
+    mgTime: 0,
+    mgDuration: 5,
+    mgMultiplier: 2,
   };
 
   // Player
   const player = {
     x: cw * 0.5,
     y: ch * 0.75,
-    w: 28,
-    h: 36,
-    r: 14, // collision radius
+    w: gs(28),
+    h: gs(36),
+    r: gs(14), // collision radius
     fireCooldown: 0,
     invUntil: 0,
   };
@@ -126,7 +151,10 @@
     scoreEl.textContent = state.score.toString();
     const ratio = clamp(state.lives / MAX_LIVES, 0, 1);
     if (hpFill) hpFill.style.width = Math.round(ratio * 100) + "%";
-    if (hpBar) hpBar.setAttribute("aria-valuenow", String(state.lives));
+    if (hpBar) {
+      hpBar.setAttribute("aria-valuenow", String(state.lives));
+      hpBar.setAttribute("aria-valuemax", String(MAX_LIVES));
+    }
   }
 
   // Input
@@ -217,7 +245,7 @@
     e.preventDefault();
   }
 
-  joystickEl?.addEventListener("pointerdown", joyStart, { passive: false });
+  if (joystickEl) joystickEl.addEventListener("pointerdown", joyStart, { passive: false });
   window.addEventListener("pointermove", joyMove, { passive: false });
   window.addEventListener("pointerup", joyEnd, { passive: false });
   window.addEventListener("pointercancel", joyEnd, { passive: false });
@@ -234,25 +262,44 @@
   function fireDown(e) {
     heldFirePointers.add(e.pointerId);
     state.isFiring = heldFirePointers.size > 0;
-    fireBtn?.classList.add("active");
+    if (fireBtn) fireBtn.classList.add("active");
     e.preventDefault();
   }
   function fireUp(e) {
     if (heldFirePointers.has(e.pointerId)) {
       heldFirePointers.delete(e.pointerId);
       state.isFiring = heldFirePointers.size > 0;
-      if (heldFirePointers.size === 0) fireBtn?.classList.remove("active");
+      if (heldFirePointers.size === 0 && fireBtn) fireBtn.classList.remove("active");
     }
   }
 
-  fireBtn?.addEventListener("pointerdown", fireDown, { passive: false });
+  if (fireBtn) fireBtn.addEventListener("pointerdown", fireDown, { passive: false });
   window.addEventListener("pointerup", fireUp, { passive: false });
   window.addEventListener("pointercancel", fireUp, { passive: false });
   window.addEventListener("blur", () => {
     heldFirePointers.clear();
     state.isFiring = false;
-    fireBtn?.classList.remove("active");
+    if (fireBtn) fireBtn.classList.remove("active");
   });
+
+  // Machine gun skill activation (Súng máy)
+  function activateMG() {
+    if (!state.running || state.dead) return;
+    state.mgActive = true;
+    state.mgTime = state.mgDuration;
+    if (mgBtn) mgBtn.classList.add("active");
+  }
+
+  if (mgBtn) {
+    mgBtn.addEventListener("click", (e) => {
+      activateMG();
+      e.preventDefault();
+    });
+    mgBtn.addEventListener("pointerdown", (e) => {
+      activateMG();
+      e.preventDefault();
+    }, { passive: false });
+  }
 
   // Keyboard input (arrow keys)
   const keys = { left: false, right: false, up: false, down: false };
@@ -261,6 +308,12 @@
     // Space to fire on hold
     if (e.code === "Space" || e.key === " " || e.key === "Spacebar") {
       state.isFiring = down;
+      e.preventDefault();
+      return;
+    }
+    // '1' to activate machine gun skill
+    if (down && (e.code === "Digit1" || e.code === "Numpad1" || e.key === "1")) {
+      activateMG();
       e.preventDefault();
       return;
     }
@@ -300,12 +353,22 @@
     state.t = 0;
     state.dead = false;
     state.deathTimer = 0;
+    state.enemiesSpawned = 0;
+    state.totalToSpawn = 30; // Số địch của màn 1
+    state.won = false;
+    state.mgActive = false;
+    state.mgTime = 0;
+    if (mgBtn) mgBtn.classList.remove("active");
     enemies.length = 0;
     pBullets.length = 0;
     eBullets.length = 0;
     particles.length = 0;
     player.x = cw * 0.5;
     player.y = ch * 0.75;
+    // Apply responsive scale to player size
+    player.w = gs(28);
+    player.h = gs(36);
+    player.r = gs(14);
     player.fireCooldown = 0;
     player.invUntil = 0;
     pointer.x = player.x;
@@ -314,7 +377,7 @@
     wingmen.length = 0;
     for (let i = 0; i < WINGMAN_OFFSETS.length; i++) {
       const off = WINGMAN_OFFSETS[i];
-      wingmen.push({ x: player.x + off.x, y: player.y + off.y });
+      wingmen.push({ x: player.x + off.x * scale, y: player.y + off.y * scale });
     }
     initStars();
     updateHUD();
@@ -330,16 +393,30 @@
 
   function gameOver() {
     state.running = false;
+    state.isFiring = false;
     finalScoreEl.textContent = state.score.toString();
+    const h1 = gameoverEl ? gameoverEl.querySelector("h1") : null;
+    if (h1) h1.textContent = "Thua cuộc!";
     gameoverEl.classList.remove("hidden");
   }
 
-  startBtn?.addEventListener("click", () => {
-    startGame();
-  });
-  restartBtn?.addEventListener("click", () => {
-    startGame();
-  });
+  // Hiển thị chiến thắng màn 1
+  function winGame() {
+    state.running = false;
+    state.won = true;
+    state.isFiring = false;
+    finalScoreEl.textContent = state.score.toString();
+    const h1 = gameoverEl ? gameoverEl.querySelector("h1") : null;
+    if (h1) h1.textContent = "Chiến thắng! Bạn đã hoàn thành nhiệm vụ";
+    gameoverEl.classList.remove("hidden");
+  }
+
+if (startBtn) startBtn.addEventListener("click", () => {
+  startGame();
+});
+if (restartBtn) restartBtn.addEventListener("click", () => {
+  startGame();
+});
 
   // Extra start triggers for robustness: click anywhere on overlay, or press Enter/Space
   function tryStartFromUI(e) {
@@ -351,8 +428,8 @@
       if (e) e.preventDefault();
     }
   }
-  overlay?.addEventListener("click", tryStartFromUI);
-  overlay?.addEventListener("pointerdown", tryStartFromUI);
+  if (overlay) overlay.addEventListener("click", tryStartFromUI);
+  if (overlay) overlay.addEventListener("pointerdown", tryStartFromUI);
   window.addEventListener("keydown", (e) => {
     if (state.running) return;
     if (e.code === "Enter" || e.code === "Space" || e.key === " " || e.key === "Spacebar") {
@@ -362,31 +439,36 @@
 
   // Spawning
   function spawnEnemy() {
+    // Giới hạn số địch sinh ra cho màn 1
+    if (state.enemiesSpawned >= state.totalToSpawn) return;
+
     const d = getDifficulty();
-    const size = rand(22, 34);
+    const size = gs(rand(22, 34));
     const x = rand(size, cw - size);
-    const vy = rand(60, 120) * (0.8 + d * 0.4);
+    const vy = gs(rand(60, 120)) * (0.8 + d * 0.4);
     const hp = Math.random() < 0.2 * d ? 2 : 1;
     enemies.push({
       x,
-      y: -size - 10,
+      y: -size - gs(10),
       w: size,
       h: size * 1.1,
       r: size * 0.55,
       vy,
       t: Math.random() * Math.PI * 2, // phase for lateral motion
-      amp: rand(20, 60) * (0.7 + d * 0.2),
+      amp: gs(rand(20, 60)) * (0.7 + d * 0.2),
       fireCd: rand(0.6, 1.8) / Math.sqrt(0.6 + d),
       fireTimer: rand(0.1, 0.6),
       hp,
     });
+
+    state.enemiesSpawned += 1;
   }
 
   // Shooting
   function shootFrom(sx, sy, sh = player) {
-    const speed = 700;
-    pBullets.push({ x: sx - 6, y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: 3.2 });
-    pBullets.push({ x: sx + 6, y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: 3.2 });
+    const speed = gs(700);
+    pBullets.push({ x: sx - gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
+    pBullets.push({ x: sx + gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
   }
   function shootPlayer() {
     shootFrom(player.x, player.y, player);
@@ -395,21 +477,21 @@
   function shootEnemy(ex, ey) {
     // aim at player with some slight spread
     const d = Math.atan2(player.y - ey, player.x - ex) + rand(-0.06, 0.06);
-    const spd = 280 + getDifficulty() * 90;
+    const spd = gs(280 + getDifficulty() * 90);
     const vx = Math.cos(d) * spd;
     const vy = Math.sin(d) * spd;
-    eBullets.push({ x: ex, y: ey, vx, vy, r: 3.5 });
+    eBullets.push({ x: ex, y: ey, vx, vy, r: gs(3.5) });
   }
 
   // Explosions / Particles
   function spawnExplosion(x, y, count = 30, kind = "enemy") {
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2;
-      const spd = rand(60, kind === "player" ? 420 : 300);
+      const spd = gs(rand(60, kind === "player" ? 420 : 300));
       const vx = Math.cos(ang) * spd;
       const vy = Math.sin(ang) * spd;
       const life = rand(0.4, kind === "player" ? 1.2 : 0.8);
-      const size = rand(2, kind === "player" ? 5 : 4);
+      const size = gs(rand(2, kind === "player" ? 5 : 4));
       const palette =
         kind === "player"
           ? ["#b7f7ff", "#2ee6ff", "#e9faff", "#ffffff"]
@@ -487,7 +569,7 @@
     }
 
     // Player movement: arrow keys OR smooth follow to pointer
-    const margin = 16;
+    const margin = gs(16);
     if (!state.dead) {
     let kx, ky;
     if (joystick.active) {
@@ -501,7 +583,7 @@
     }
 
     if (kx !== 0 || ky !== 0) {
-      const speed = 420; // px per second
+      const speed = gs(420); // px per second
       const len = Math.hypot(kx, ky) || 1;
       player.x += (kx / len) * speed * dt;
       player.y += (ky / len) * speed * dt;
@@ -515,15 +597,15 @@
       player.y += (pointer.y - player.y) * lerp;
     }
     player.x = clamp(player.x, margin, cw - margin);
-    player.y = clamp(player.y, margin + 56, ch - margin); // avoid top HUD overlap too much
+    player.y = clamp(player.y, margin + getHudHeight(), ch - margin); // avoid top HUD overlap too much
     }
 
     // Wingmen follow formation
     for (let i = 0; i < wingmen.length; i++) {
       const wm = wingmen[i];
       const off = WINGMAN_OFFSETS[i % WINGMAN_OFFSETS.length];
-      const tx = clamp(player.x + off.x, margin, cw - margin);
-      const ty = clamp(player.y + off.y, margin + 56, ch - margin);
+      const tx = clamp(player.x + off.x * scale, margin, cw - margin);
+      const ty = clamp(player.y + off.y * scale, margin + getHudHeight(), ch - margin);
       const lerp2 = 1 - Math.pow(0.0001, dt);
       wm.x += (tx - wm.x) * lerp2;
       wm.y += (ty - wm.y) * lerp2;
@@ -538,14 +620,28 @@
         shootFrom(wm.x, wm.y, player);
       }
       const baseInterval = 0.14; // seconds
-      player.fireCooldown = Math.max(0.07, baseInterval - getDifficulty() * 0.02);
+      let interval = Math.max(0.07, baseInterval - getDifficulty() * 0.02);
+      if (state.mgActive) interval = Math.max(0.035, interval / state.mgMultiplier);
+      player.fireCooldown = interval;
     }
+    }
+
+    // Update machine gun timer
+    if (state.mgActive) {
+      state.mgTime -= dt;
+      if (state.mgTime <= 0) {
+        state.mgActive = false;
+        state.mgTime = 0;
+        if (mgBtn) mgBtn.classList.remove("active");
+      }
     }
 
     // Spawn enemies
     if (!state.dead) {
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) {
+      // Double enemy spawn
+      spawnEnemy();
       spawnEnemy();
       const base = rand(0.4, 1.0);
       state.spawnTimer = Math.max(0.2, base / (0.7 + getDifficulty() * 0.6));
@@ -630,6 +726,12 @@
         eBullets.splice(i, 1);
         damagePlayer();
       }
+    }
+
+    // Victory condition: hoàn thành màn 1 khi đã sinh đủ địch và tiêu diệt hết
+    if (!state.dead && !state.won && state.enemiesSpawned >= state.totalToSpawn && enemies.length === 0) {
+      winGame();
+      return;
     }
   }
 
@@ -832,7 +934,7 @@
     // cap dt to avoid huge steps on tab switch
     dt = Math.min(dt, 0.033);
 
-    update(dt);
+    update(dt * TIME_SCALE);
     draw();
     requestAnimationFrame(loop);
   }

@@ -124,7 +124,7 @@ button:active {
 .hud .right { align-items: center; }
 
 .hpbar {
-  width: 120px;
+  width: 240px;
   height: 12px;
   background: rgba(255, 255, 255, 0.12);
   border-radius: 6px;
@@ -229,6 +229,40 @@ button:active {
     0 0 0 6px rgba(255,59,129,0.18) inset;
 }
 
+/* Machine gun button */
+.mg-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 140px; /* Above the fire button */
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--btn-bg), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  box-shadow:
+    0 10px 26px rgba(0,0,0,0.35),
+    inset 0 0 0 1px rgba(255,255,255,0.06);
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+
+.mg-btn:hover {
+  background: linear-gradient(180deg, var(--btn-bg-hover), rgba(255,255,255,0.08));
+}
+
+.mg-btn.active {
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.45),
+    0 0 0 6px rgba(46,230,255,0.18) inset;
+}
+
 /* Controls - Small screens */
 @media (max-width: 480px) {
   .joystick {
@@ -247,5 +281,12 @@ button:active {
     right: 16px;
     bottom: 24px;
     font-size: 30px;
+  }
+  .mg-btn {
+    width: 64px;
+    height: 64px;
+    right: 16px;
+    bottom: 112px; /* Above the fire button on small screens */
+    font-size: 20px;
   }
 }
