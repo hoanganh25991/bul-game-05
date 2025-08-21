@@ -14,7 +14,7 @@
   // - ENEMY_BULLET_SPEED_DIVISOR: giảm tốc độ đạn của địch xuống 1/5
   const FIRE_RATE_MULTIPLIER = 5;
   const ENEMY_SPEED_DIVISOR = 3;
-  const ENEMY_BULLET_SPEED_DIVISOR = 8;
+  const ENEMY_BULLET_SPEED_DIVISOR = 40;
 
   // DOM
   const canvas = document.getElementById("game");
@@ -365,7 +365,7 @@
     state.dead = false;
     state.deathTimer = 0;
     state.enemiesSpawned = 0;
-    state.totalToSpawn = 30; // Số địch của màn 1
+    state.totalToSpawn = 150; // Tăng gấp 5 (Số địch tham chiếu của màn 1)
     state.won = false;
     state.mgActive = false;
     state.mgTime = 0;
@@ -511,7 +511,7 @@ if (restartBtn) {
 
   // Shooting
   function shootFrom(sx, sy, sh = player) {
-    const speed = gs(420);
+    const speed = gs(84); // chậm gấp 5 lần so với trước
     pBullets.push({ x: sx - gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
     pBullets.push({ x: sx + gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
   }
@@ -748,9 +748,10 @@ if (restartBtn) {
     if (!state.dead && !boss && !state.bossSpawned) {
     state.spawnTimer -= dtEnemy;
     if (state.spawnTimer <= 0) {
-      // Double enemy spawn
-      spawnEnemy();
-      spawnEnemy();
+      // Spawn 10 enemies per wave (5x tăng quân địch)
+      for (let i = 0; i < 10; i++) {
+        spawnEnemy();
+      }
       const base = rand(0.4, 1.0);
       state.spawnTimer = Math.max(0.2, base / (0.7 + getDifficulty() * 0.6));
     }
@@ -1251,8 +1252,8 @@ if (restartBtn) {
       w: gs(140),
       h: gs(120),
       r: gs(60),
-      maxHp: 1200,
-      hp: 1200,
+      maxHp: 10000,
+      hp: 10000,
       t: 0,
       entryY,
       entering: true,
