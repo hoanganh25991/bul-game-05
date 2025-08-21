@@ -7,7 +7,14 @@
   // Early declarations to avoid TDZ before resize() calls updateScale
   var scale = 1;
   const BASE_H = 900;
-  const TIME_SCALE = 0.5; // Slow down game logic to half speed
+  const TIME_SCALE = 1; // Base speed (no global slow); temporary slow-mo handled via time-vibe
+  // Tuning multipliers/divisors
+  // - FIRE_RATE_MULTIPLIER: tăng tốc độ bắn của người chơi lên gấp 5 lần (giảm thời gian hồi)
+  // - ENEMY_SPEED_DIVISOR: giảm tốc độ di chuyển của quân địch (bao gồm Boss) xuống 1/5
+  // - ENEMY_BULLET_SPEED_DIVISOR: giảm tốc độ đạn của địch xuống 1/5
+  const FIRE_RATE_MULTIPLIER = 5;
+  const ENEMY_SPEED_DIVISOR = 5;
+  const ENEMY_BULLET_SPEED_DIVISOR = 5;
 
   // DOM
   const canvas = document.getElementById("game");
@@ -151,6 +158,9 @@
     mgTime: 0,
     mgDuration: 5,
     mgMultiplier: 3,
+    timeVibeActive: false,
+    timeVibeRemaining: 0,
+    timeVibeFactor: 1,
   };
 
   // Player
@@ -282,6 +292,13 @@
     if (mgBtn) mgBtn.classList.add("active");
   }
 
+  // Kích hoạt "rung động thời gian" (làm chậm thời gian tạm thời)
+  function activateTimeVibe(duration = 5, factor = 0.5) {
+    state.timeVibeActive = true;
+    state.timeVibeRemaining = duration;
+    state.timeVibeFactor = factor;
+  }
+
   if (mgBtn) {
     const onMG = (e) => {
       activateMG();
@@ -358,6 +375,8 @@
     state.running = true;
     overlay.classList.add("hidden");
     gameoverEl.classList.add("hidden");
+    // Tự động kích hoạt "rung động thời gian" trong 5 giây (giảm tốc 50%)
+    activateTimeVibe(5, 0.5);
     requestAnimationFrame(loop);
   }
 
@@ -444,7 +463,7 @@ if (restartBtn) {
     const d = getDifficulty();
     const size = gs(rand(22, 34));
     const x = rand(size, cw - size);
-    const vy = gs(rand(60, 120)) * (0.8 + d * 0.4);
+    const vy = (gs(rand(60, 120)) * (0.8 + d * 0.4)) / ENEMY_SPEED_DIVISOR;
     const hp = Math.random() < 0.2 * d ? 2 : 1;
     enemies.push({
       x,
@@ -454,7 +473,7 @@ if (restartBtn) {
       r: size * 0.55,
       vy,
       t: Math.random() * Math.PI * 2, // phase for lateral motion
-      amp: gs(rand(20, 60)) * (0.7 + d * 0.2),
+      amp: (gs(rand(20, 60)) * (0.7 + d * 0.2)) / ENEMY_SPEED_DIVISOR,
       fireCd: rand(0.6, 1.8) / Math.sqrt(0.6 + d),
       fireTimer: rand(0.1, 0.6),
       hp,
@@ -476,7 +495,7 @@ if (restartBtn) {
   function shootEnemy(ex, ey) {
     // aim at player with some slight spread
     const d = Math.atan2(player.y - ey, player.x - ex) + rand(-0.06, 0.06);
-    const spd = gs(280 + getDifficulty() * 90);
+    const spd = gs(280 + getDifficulty() * 90) / ENEMY_BULLET_SPEED_DIVISOR;
     const vx = Math.cos(d) * spd;
     const vy = Math.sin(d) * spd;
     eBullets.push({ x: ex, y: ey, vx, vy, r: gs(3.5) });
@@ -494,7 +513,7 @@ if (restartBtn) {
       const palette =
         kind === "player"
           ? ["#b7f7ff", "#2ee6ff", "#e9faff", "#ffffff"]
-          : ["#ff8fb6", "#ff3b81", "#ffd1e2", "#ffffff"];
+          : ["#FFB347", "#FF8C00", "#FFD27F", "#ffffff"];
       const color = palette[Math.floor(Math.random() * palette.length)];
       particles.push({ x, y, vx, vy, life, max: life, size, color });
     }
@@ -610,7 +629,9 @@ if (restartBtn) {
       }
       const baseInterval = 0.14; // seconds
       let interval = Math.max(0.07, baseInterval - getDifficulty() * 0.02);
-      if (state.mgActive) interval = Math.max(0.035, interval / state.mgMultiplier);
+      // Apply faster fire rate (gấp 5 lần)
+      interval = interval / FIRE_RATE_MULTIPLIER;
+      if (state.mgActive) interval = Math.max(0.035 / FIRE_RATE_MULTIPLIER, interval / state.mgMultiplier);
       player.fireCooldown = interval;
     }
     }
@@ -853,8 +874,8 @@ if (restartBtn) {
       if (b.type === "laser") {
         const beamW = b.phase === "fire" ? b.width : Math.max(2, b.width * 0.35);
         const grad = ctx.createLinearGradient(b.x, b.y, b.x, ch);
-        grad.addColorStop(0, "rgba(255,59,129,0.9)");
-        grad.addColorStop(1, "rgba(255,59,129,0.0)");
+        grad.addColorStop(0, "rgba(59,130,246,0.9)");
+        grad.addColorStop(1, "rgba(59,130,246,0.0)");
         ctx.save();
         ctx.globalAlpha = b.phase === "charge" ? 0.6 : 1.0;
         ctx.fillStyle = grad;
@@ -863,26 +884,26 @@ if (restartBtn) {
         ctx.fill();
         // bright core
         ctx.globalAlpha = b.phase === "charge" ? 0.35 : 0.9;
-        ctx.fillStyle = "rgba(255,219,238,0.95)";
+        ctx.fillStyle = "rgba(219,234,254,0.95)";
         ctx.fillRect(b.x - Math.max(1, beamW * 0.15), b.y, Math.max(2, beamW * 0.3), ch - b.y);
         ctx.restore();
       } else if (b.type === "orb") {
         const a = Math.max(0, b.fuse / b.maxFuse);
         const glowR = b.r + gs(14) * (0.5 + 0.5 * a);
         const g = ctx.createRadialGradient(b.x, b.y, b.r * 0.25, b.x, b.y, glowR);
-        g.addColorStop(0, "rgba(255,219,238,0.95)");
-        g.addColorStop(1, "rgba(255,59,129,0.25)");
+        g.addColorStop(0, "rgba(219,234,254,0.95)");
+        g.addColorStop(1, "rgba(59,130,246,0.25)");
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(b.x, b.y, glowR, 0, Math.PI * 2);
         ctx.fill();
         // core
-        ctx.fillStyle = "#ff3b81";
+        ctx.fillStyle = "#3b82f6";
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.fillStyle = "#ff3b81";
+        ctx.fillStyle = "#3b82f6";
         ctx.beginPath();
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         ctx.fill();
@@ -1016,15 +1037,15 @@ if (restartBtn) {
 
     // glow
     const g = ctx.createRadialGradient(0, 0, 4, 0, 0, e.r + 10);
-    g.addColorStop(0, "rgba(255,59,129,0.25)");
-    g.addColorStop(1, "rgba(255,59,129,0)");
+    g.addColorStop(0, "rgba(59,130,246,0.25)");
+    g.addColorStop(1, "rgba(59,130,246,0)");
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(0, 0, e.r + 10, 0, Math.PI * 2);
     ctx.fill();
 
     // body
-    ctx.fillStyle = "#ff8fb6";
+    ctx.fillStyle = "#60a5fa";
     const w = e.w,
       h = e.h;
     ctx.beginPath();
@@ -1037,7 +1058,7 @@ if (restartBtn) {
     ctx.fill();
 
     // cockpit
-    ctx.fillStyle = "#ff3b81";
+    ctx.fillStyle = "#3b82f6";
     ctx.beginPath();
     ctx.ellipse(0, -h * 0.2, w * 0.18, h * 0.2, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -1067,13 +1088,13 @@ if (restartBtn) {
     if (!boss) return;
     boss.t += dt;
     if (boss.entering) {
-      boss.y += gs(120) * dt;
+      boss.y += (gs(120) * dt) / ENEMY_SPEED_DIVISOR;
       if (boss.y >= boss.entryY) {
         boss.y = boss.entryY;
         boss.entering = false;
       }
     } else {
-      const tx = cw * 0.5 + Math.sin(boss.t * 0.7) * gs(180);
+      const tx = cw * 0.5 + Math.sin(boss.t * 0.7) * (gs(180) / ENEMY_SPEED_DIVISOR);
       const lerp = 1 - Math.pow(0.0001, dt);
       boss.x += (tx - boss.x) * lerp;
     }
@@ -1081,7 +1102,7 @@ if (restartBtn) {
     boss.orbTimer -= dt;
     if (boss.orbTimer <= 0) {
       const d = Math.atan2(player.y - boss.y, player.x - boss.x) + rand(-0.05, 0.05);
-      const spd = gs(160);
+      const spd = gs(160) / ENEMY_BULLET_SPEED_DIVISOR;
       const vx = Math.cos(d) * spd;
       const vy = Math.sin(d) * spd;
       const r = gs(12);
@@ -1103,8 +1124,8 @@ if (restartBtn) {
     ctx.translate(b.x, b.y);
     // glow
     const g = ctx.createRadialGradient(0, 0, 6, 0, 0, b.r + 14);
-    g.addColorStop(0, "rgba(255,59,129,0.28)");
-    g.addColorStop(1, "rgba(255,59,129,0)");
+    g.addColorStop(0, "rgba(59,130,246,0.28)");
+    g.addColorStop(1, "rgba(59,130,246,0)");
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(0, 0, b.r + 14, 0, Math.PI * 2);
@@ -1112,7 +1133,7 @@ if (restartBtn) {
 
     // body
     const w = b.w, h = b.h;
-    ctx.fillStyle = "#ff8fb6";
+    ctx.fillStyle = "#60a5fa";
     ctx.beginPath();
     ctx.moveTo(0, -h * 0.55);
     ctx.lineTo(-w * 0.6, -h * 0.05);
@@ -1123,13 +1144,13 @@ if (restartBtn) {
     ctx.fill();
 
     // cockpit
-    ctx.fillStyle = "#ff3b81";
+    ctx.fillStyle = "#3b82f6";
     ctx.beginPath();
     ctx.ellipse(0, -h * 0.15, w * 0.22, h * 0.24, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // turrets
-    ctx.fillStyle = "#ffd1e2";
+    ctx.fillStyle = "#dbeafe";
     ctx.fillRect(-w * 0.4, h * 0.3, w * 0.12, h * 0.12);
     ctx.fillRect(w * 0.28, h * 0.3, w * 0.12, h * 0.12);
 
@@ -1143,7 +1164,7 @@ if (restartBtn) {
     const by = getHudHeight() + gs(10);
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(bx, by, barW, barH);
-    ctx.fillStyle = "#ff3b81";
+    ctx.fillStyle = "#3b82f6";
     const ratio = clamp(b.hp / 120, 0, 1);
     ctx.fillRect(bx, by, barW * ratio, barH);
     ctx.restore();
@@ -1158,7 +1179,18 @@ if (restartBtn) {
     // cap dt to avoid huge steps on tab switch
     dt = Math.min(dt, 0.033);
 
-    update(dt * TIME_SCALE);
+    // Đếm lùi thời gian hiệu ứng "rung động thời gian" theo giây thực
+    if (state.timeVibeActive) {
+      state.timeVibeRemaining -= dt;
+      if (state.timeVibeRemaining <= 0) {
+        state.timeVibeActive = false;
+        state.timeVibeRemaining = 0;
+        state.timeVibeFactor = 1;
+      }
+    }
+    const tScale = state.timeVibeActive ? state.timeVibeFactor : 1;
+
+    update(dt * tScale);
     draw();
     requestAnimationFrame(loop);
   }
