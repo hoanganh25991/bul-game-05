@@ -334,16 +334,28 @@
     gameoverEl.classList.remove("hidden");
   }
 
-if (startBtn) startBtn.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "touch") return;
-  startGame();
-  e.preventDefault();
-}, { passive: false });
-if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "touch") return;
-  startGame();
-  e.preventDefault();
-}, { passive: false });
+if (startBtn) {
+  // Touch: pointerdown for immediate response
+  startBtn.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    tryStartFromUI(e);
+    e.preventDefault();
+  }, { passive: false });
+  // Desktop and keyboard: click event
+  startBtn.addEventListener("click", (e) => {
+    tryStartFromUI(e);
+  });
+}
+if (restartBtn) {
+  restartBtn.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    tryStartFromUI(e);
+    e.preventDefault();
+  }, { passive: false });
+  restartBtn.addEventListener("click", (e) => {
+    tryStartFromUI(e);
+  });
+}
 
   // Extra start triggers for robustness: click anywhere on overlay, or press Enter/Space
   function tryStartFromUI(e) {
@@ -361,7 +373,21 @@ if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
       tryStartFromUI(e);
       e.preventDefault();
     }, { passive: false });
+    // Desktop: click anywhere on overlay to start
+    overlay.addEventListener("click", (e) => {
+      tryStartFromUI(e);
+    });
   }
+
+  // Keyboard: Enter or Space starts the game when menu/overlay is visible
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      if (!state.running) {
+        tryStartFromUI(e);
+        e.preventDefault();
+      }
+    }
+  });
 
   // Spawning
   function spawnEnemy() {
