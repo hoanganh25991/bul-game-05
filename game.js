@@ -150,7 +150,7 @@
     mgActive: false,
     mgTime: 0,
     mgDuration: 5,
-    mgMultiplier: 2,
+    mgMultiplier: 3,
   };
 
   // Player
@@ -546,6 +546,7 @@ if (restartBtn) {
   // Update + Draw
   function update(dt) {
     state.t += dt;
+    const dtEnemy = state.mgActive ? dt / 3 : dt;
 
     if (state.dead) {
       state.deathTimer -= dt;
@@ -626,7 +627,7 @@ if (restartBtn) {
 
     // Spawn enemies (tiếp tục cho đến khi gặp trùm)
     if (!state.dead && !boss && !state.bossSpawned) {
-    state.spawnTimer -= dt;
+    state.spawnTimer -= dtEnemy;
     if (state.spawnTimer <= 0) {
       // Double enemy spawn
       spawnEnemy();
@@ -639,12 +640,12 @@ if (restartBtn) {
     // Update enemies
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
-      e.t += dt;
-      e.y += e.vy * dt;
-      e.x += Math.sin(e.t * 2.0) * e.amp * dt;
+      e.t += dtEnemy;
+      e.y += e.vy * dtEnemy;
+      e.x += Math.sin(e.t * 2.0) * e.amp * dtEnemy;
 
       // Fire
-      e.fireTimer -= dt;
+      e.fireTimer -= dtEnemy;
       if (e.fireTimer <= 0) {
         shootEnemy(e.x, e.y + e.h * 0.2);
         e.fireTimer = e.fireCd;
@@ -658,7 +659,7 @@ if (restartBtn) {
 
     // Update boss
     if (boss) {
-      updateBoss(dt);
+      updateBoss(dtEnemy);
     }
 
     // Update bullets
@@ -676,13 +677,13 @@ if (restartBtn) {
       // Boss laser beam handling (vertical beam from boss downward)
       if (b.type === "laser") {
         if (b.phase === "charge") {
-          b.charge -= dt;
+          b.charge -= dtEnemy;
           if (b.charge <= 0) {
             b.phase = "fire";
           }
         } else {
           // fire phase
-          b.fire -= dt;
+          b.fire -= dtEnemy;
           // Damage if player intersects beam column (invincibility window in damagePlayer handles rate)
           if (!state.dead) {
             if (player.y > b.y && Math.abs(player.x - b.x) <= b.width * 0.5) {
@@ -703,9 +704,9 @@ if (restartBtn) {
         // slow drifting
         b.vx *= 0.995;
         b.vy *= 0.995;
-        b.x += b.vx * dt;
-        b.y += b.vy * dt;
-        b.fuse -= dt;
+        b.x += b.vx * dtEnemy;
+        b.y += b.vy * dtEnemy;
+        b.fuse -= dtEnemy;
 
         const off = (b.x < -30 || b.x > cw + 30 || b.y < -30 || b.y > ch + 30);
         if (b.fuse <= 0 || off) {
@@ -724,8 +725,8 @@ if (restartBtn) {
       }
 
       // Default enemy bullet
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+      b.x += b.vx * dtEnemy;
+      b.y += b.vy * dtEnemy;
       if (b.y < -20 || b.y > ch + 20 || b.x < -20 || b.x > cw + 20) {
         eBullets.splice(i, 1);
       }
