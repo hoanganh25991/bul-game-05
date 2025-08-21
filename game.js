@@ -13,8 +13,8 @@
   // - ENEMY_SPEED_DIVISOR: giảm tốc độ di chuyển của quân địch (bao gồm Boss) xuống 1/5
   // - ENEMY_BULLET_SPEED_DIVISOR: giảm tốc độ đạn của địch xuống 1/5
   const FIRE_RATE_MULTIPLIER = 5;
-  const ENEMY_SPEED_DIVISOR = 5;
-  const ENEMY_BULLET_SPEED_DIVISOR = 5;
+  const ENEMY_SPEED_DIVISOR = 3;
+  const ENEMY_BULLET_SPEED_DIVISOR = 8;
 
   // DOM
   const canvas = document.getElementById("game");
@@ -31,6 +31,7 @@
   // On-screen controls
   const fireBtn = document.getElementById("fireBtn");
   const mgBtn = document.getElementById("mgBtn");
+  const missileBtn = document.getElementById("missileBtn");
   const joystick = document.getElementById("joystick");
   const joyKnob = joystick ? joystick.querySelector(".joy-stick") : null;
 
@@ -161,6 +162,10 @@
     timeVibeActive: false,
     timeVibeRemaining: 0,
     timeVibeFactor: 1,
+    missileActive: false,
+    missileTime: 0,
+    missileDuration: 10,
+    missileCd: 0,
   };
 
   // Player
@@ -186,6 +191,7 @@
   const pBullets = []; // player's bullets
   const eBullets = []; // enemy bullets
   const enemies = [];
+  const missiles = []; // homing missiles
   const particles = []; // explosion particles
   let boss = null; // Boss entity when present
 
@@ -299,19 +305,37 @@
     state.timeVibeFactor = factor;
   }
 
+  // Kích hoạt "tên lửa truy đuổi" (bắn tên lửa tự tìm mục tiêu trong 10 giây)
+  function activateMissiles() {
+    if (!state.running || state.dead) return;
+    state.missileActive = true;
+    state.missileTime = state.missileDuration;
+    state.missileCd = 0;
+    if (missileBtn) missileBtn.classList.add("active");
+  }
+
   if (mgBtn) {
-    const onMG = (e) => {
-      activateMG();
+    const onTime = (e) => {
+      activateTimeVibe(5, 0.5);
       e.preventDefault();
     };
-    // Support both touch and mouse/pen
-    mgBtn.addEventListener("pointerdown", onMG, { passive: false });
-    mgBtn.addEventListener("click", onMG);
+    mgBtn.addEventListener("pointerdown", onTime, { passive: false });
+    mgBtn.addEventListener("click", onTime);
+  }
+  if (missileBtn) {
+    const onMissile = (e) => {
+      activateMissiles();
+      e.preventDefault();
+    };
+    missileBtn.addEventListener("pointerdown", onMissile, { passive: false });
+    missileBtn.addEventListener("click", onMissile);
   }
 
   // Keyboard controls (WASD/Arrows to move, Space to fire)
   window.addEventListener("keydown", (e) => {
     switch (e.key) {
+      case "1": activateMissiles(); e.preventDefault(); break;
+      case "2": activateTimeVibe(5, 0.5); e.preventDefault(); break;
       case "ArrowLeft": case "a": case "A": keys.left = true; e.preventDefault(); break;
       case "ArrowRight": case "d": case "D": keys.right = true; e.preventDefault(); break;
       case "ArrowUp": case "w": case "W": keys.up = true; e.preventDefault(); break;
@@ -346,9 +370,14 @@
     state.mgActive = false;
     state.mgTime = 0;
     if (mgBtn) mgBtn.classList.remove("active");
+    state.missileActive = false;
+    state.missileTime = 0;
+    state.missileCd = 0;
+    if (missileBtn) missileBtn.classList.remove("active");
     enemies.length = 0;
     pBullets.length = 0;
     eBullets.length = 0;
+    missiles.length = 0;
     particles.length = 0;
     boss = null;
     state.bossSpawned = false;
@@ -375,8 +404,6 @@
     state.running = true;
     overlay.classList.add("hidden");
     gameoverEl.classList.add("hidden");
-    // Tự động kích hoạt "rung động thời gian" trong 5 giây (giảm tốc 50%)
-    activateTimeVibe(5, 0.5);
     requestAnimationFrame(loop);
   }
 
@@ -484,7 +511,7 @@ if (restartBtn) {
 
   // Shooting
   function shootFrom(sx, sy, sh = player) {
-    const speed = gs(700);
+    const speed = gs(420);
     pBullets.push({ x: sx - gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
     pBullets.push({ x: sx + gs(6), y: sy - sh.h * 0.5, vx: 0, vy: -speed, r: gs(3.2) });
   }
@@ -499,6 +526,22 @@ if (restartBtn) {
     const vx = Math.cos(d) * spd;
     const vy = Math.sin(d) * spd;
     eBullets.push({ x: ex, y: ey, vx, vy, r: gs(3.5) });
+  }
+
+  // Spawn a homing missile from player
+  function spawnMissile() {
+    const speed = gs(520);
+    const turn = 6.0; // rad/s turn rate
+    const r = gs(5);
+    missiles.push({
+      x: player.x,
+      y: player.y - player.h * 0.6,
+      vx: 0,
+      vy: -speed,
+      speed,
+      turn,
+      r
+    });
   }
 
   // Explosions / Particles
@@ -560,6 +603,46 @@ if (restartBtn) {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  function drawMissiles() {
+    for (let m of missiles) {
+      const ang = Math.atan2(m.vy, m.vx);
+      ctx.save();
+      ctx.translate(m.x, m.y);
+      ctx.rotate(ang + Math.PI * 0.5);
+
+      // Glow
+      const g = ctx.createRadialGradient(0, 0, 3, 0, 0, 18);
+      g.addColorStop(0, "rgba(46,230,255,0.2)");
+      g.addColorStop(1, "rgba(46,230,255,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body (triangle rocket)
+      ctx.fillStyle = "#e9faff";
+      ctx.beginPath();
+      ctx.moveTo(0, -gs(10));
+      ctx.lineTo(-gs(6), gs(10));
+      ctx.lineTo(gs(6), gs(10));
+      ctx.closePath();
+      ctx.fill();
+
+      // Thruster
+      ctx.fillStyle = "#2ee6ff";
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(-gs(3), gs(10));
+      ctx.lineTo(gs(3), gs(10));
+      ctx.lineTo(0, gs(16) + Math.sin(state.t * 60) * 1.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.restore();
+    }
   }
 
   // Update + Draw
@@ -643,6 +726,21 @@ if (restartBtn) {
         state.mgActive = false;
         state.mgTime = 0;
         if (mgBtn) mgBtn.classList.remove("active");
+      }
+    }
+
+    // Homing missile ability timer and auto-spawn
+    if (state.missileActive) {
+      state.missileTime -= dt;
+      state.missileCd -= dt;
+      if (state.missileCd <= 0) {
+        spawnMissile();
+        state.missileCd = 0.3; // spawn every 0.3s
+      }
+      if (state.missileTime <= 0) {
+        state.missileActive = false;
+        state.missileTime = 0;
+        if (missileBtn) missileBtn.classList.remove("active");
       }
     }
 
@@ -750,6 +848,81 @@ if (restartBtn) {
       b.y += b.vy * dtEnemy;
       if (b.y < -20 || b.y > ch + 20 || b.x < -20 || b.x > cw + 20) {
         eBullets.splice(i, 1);
+      }
+    }
+
+    // Update missiles: steer towards nearest target and handle collisions
+    for (let i = missiles.length - 1; i >= 0; i--) {
+      const m = missiles[i];
+
+      // Acquire nearest target (enemy or boss)
+      let target = null;
+      let bestD2 = Infinity;
+      if (boss) {
+        const d2b = dist2(m.x, m.y, boss.x, boss.y);
+        if (d2b < bestD2) { bestD2 = d2b; target = boss; }
+      }
+      for (let k = 0; k < enemies.length; k++) {
+        const e = enemies[k];
+        const d2 = dist2(m.x, m.y, e.x, e.y);
+        if (d2 < bestD2) { bestD2 = d2; target = e; }
+      }
+
+      // Steering
+      const cur = Math.atan2(m.vy, m.vx);
+      const desired = target ? Math.atan2((target.y - m.y), (target.x - m.x)) : -Math.PI * 0.5;
+      let diff = desired - cur;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const maxTurn = m.turn * dt;
+      const ang = cur + clamp(diff, -maxTurn, maxTurn);
+
+      m.vx = Math.cos(ang) * m.speed;
+      m.vy = Math.sin(ang) * m.speed;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+
+      // Collide with enemies
+      let hit = false;
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        const rr = (e.r + m.r) * (e.r + m.r);
+        if (dist2(m.x, m.y, e.x, e.y) <= rr) {
+          e.hp -= 3;
+          if (e.hp <= 0) {
+            explodeEnemy(e);
+            enemies.splice(j, 1);
+            state.score += 100;
+            updateHUD();
+          }
+          spawnExplosion(m.x, m.y, 24, "enemy");
+          missiles.splice(i, 1);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) continue;
+
+      // Collide with boss
+      if (boss) {
+        const rrB = (boss.r + m.r) * (boss.r + m.r);
+        if (dist2(m.x, m.y, boss.x, boss.y) <= rrB) {
+          boss.hp -= 8;
+          spawnExplosion(m.x, m.y, 35, "enemy");
+          missiles.splice(i, 1);
+          if (boss.hp <= 0) {
+            spawnExplosion(boss.x, boss.y, 200, "enemy");
+            boss = null;
+            state.score += 2000;
+            updateHUD();
+          }
+          continue;
+        }
+      }
+
+      // Off-screen cleanup
+      if (m.y < -40 || m.y > ch + 40 || m.x < -40 || m.x > cw + 40) {
+        missiles.splice(i, 1);
       }
     }
 
@@ -868,6 +1041,9 @@ if (restartBtn) {
       ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // Homing missiles
+    drawMissiles();
 
     // Enemy bullets (normal, orbs, lasers)
     for (let b of eBullets) {
@@ -1075,7 +1251,8 @@ if (restartBtn) {
       w: gs(140),
       h: gs(120),
       r: gs(60),
-      hp: 120,
+      maxHp: 1200,
+      hp: 1200,
       t: 0,
       entryY,
       entering: true,
@@ -1106,7 +1283,7 @@ if (restartBtn) {
       const vx = Math.cos(d) * spd;
       const vy = Math.sin(d) * spd;
       const r = gs(12);
-      const fuse = 1.3;
+      const fuse = 1.6;
       const explodeR = gs(90);
       eBullets.push({ type: "orb", x: boss.x, y: boss.y + boss.h * 0.4, vx, vy, r, fuse, maxFuse: fuse, explodeR });
       boss.orbTimer = rand(0.9, 1.6);
@@ -1165,8 +1342,14 @@ if (restartBtn) {
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.fillRect(bx, by, barW, barH);
     ctx.fillStyle = "#3b82f6";
-    const ratio = clamp(b.hp / 120, 0, 1);
+    const ratio = clamp(b.hp / (b.maxHp || 1200), 0, 1);
     ctx.fillRect(bx, by, barW * ratio, barH);
+    // segment separators (10 segments)
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    for (let i = 1; i < 10; i++) {
+      const x = bx + (barW * i) / 10;
+      ctx.fillRect(Math.round(x) - 1, by, 2, barH);
+    }
     ctx.restore();
   }
 
