@@ -66,7 +66,6 @@
 
   if (joystick) {
     joystick.addEventListener("pointerdown", (e) => {
-      if (e.pointerType !== "touch") return;
       joy.active = true;
       joy.id = e.pointerId;
       updateJoyFromPointer(e);
@@ -74,12 +73,12 @@
       e.preventDefault();
     }, { passive: false });
     joystick.addEventListener("pointermove", (e) => {
-      if (e.pointerType !== "touch" || !joy.active || e.pointerId !== joy.id) return;
+      if (!joy.active || e.pointerId !== joy.id) return;
       updateJoyFromPointer(e);
       e.preventDefault();
     }, { passive: false });
     const joyEnd = (e) => {
-      if (e.pointerType !== "touch" || e.pointerId !== joy.id) return;
+      if (e.pointerId !== joy.id) return;
       resetJoy();
       if (joystick.releasePointerCapture) joystick.releasePointerCapture(e.pointerId);
       e.preventDefault();
@@ -91,6 +90,8 @@
   window.addEventListener("blur", resetJoy);
 
   const heldFirePointers = new Set();
+  // Keyboard state for desktop controls (WASD/Arrows + Space to fire)
+  const keys = { left: false, right: false, up: false, down: false };
 
   // Canvas size + DPR for crisp rendering
   let cw = 0,
@@ -222,11 +223,33 @@
   });
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 
+  // Desktop mouse controls on canvas: move with mouse, hold to fire
+  canvas.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "mouse" && !state.dead) {
+      const margin = gs(16);
+      player.x = clamp(e.clientX, margin, cw - margin);
+      player.y = clamp(e.clientY, margin + getHudHeight(), ch - margin);
+    }
+  }, { passive: true });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") {
+      state.isFiring = true;
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  window.addEventListener("pointerup", (e) => {
+    if (e.pointerType === "mouse") {
+      // Release firing when mouse button released (unless fire button held)
+      state.isFiring = heldFirePointers.size > 0;
+    }
+  }, { passive: true });
+
   // Remove on-screen joystick: no-op
 
   // Setup fire button to toggle continuous firing while pressed
   function fireDown(e) {
-    if (e.pointerType !== "touch") return;
     heldFirePointers.add(e.pointerId);
     state.isFiring = heldFirePointers.size > 0;
     if (fireBtn) fireBtn.classList.add("active");
@@ -247,6 +270,8 @@
     heldFirePointers.clear();
     state.isFiring = false;
     if (fireBtn) fireBtn.classList.remove("active");
+    // reset keyboard state on focus loss
+    keys.left = keys.right = keys.up = keys.down = false;
   });
 
   // Machine gun skill activation (Súng máy)
@@ -258,12 +283,34 @@
   }
 
   if (mgBtn) {
-    mgBtn.addEventListener("pointerdown", (e) => {
-      if (e.pointerType !== "touch") return;
+    const onMG = (e) => {
       activateMG();
       e.preventDefault();
-    }, { passive: false });
+    };
+    // Support both touch and mouse/pen
+    mgBtn.addEventListener("pointerdown", onMG, { passive: false });
+    mgBtn.addEventListener("click", onMG);
   }
+
+  // Keyboard controls (WASD/Arrows to move, Space to fire)
+  window.addEventListener("keydown", (e) => {
+    switch (e.key) {
+      case "ArrowLeft": case "a": case "A": keys.left = true; e.preventDefault(); break;
+      case "ArrowRight": case "d": case "D": keys.right = true; e.preventDefault(); break;
+      case "ArrowUp": case "w": case "W": keys.up = true; e.preventDefault(); break;
+      case "ArrowDown": case "s": case "S": keys.down = true; e.preventDefault(); break;
+      case " ": case "Spacebar": state.isFiring = true; e.preventDefault(); break;
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    switch (e.key) {
+      case "ArrowLeft": case "a": case "A": keys.left = false; break;
+      case "ArrowRight": case "d": case "D": keys.right = false; break;
+      case "ArrowUp": case "w": case "W": keys.up = false; break;
+      case "ArrowDown": case "s": case "S": keys.down = false; break;
+      case " ": case "Spacebar": state.isFiring = false; break;
+    }
+  });
 
 
   // Game control
@@ -520,13 +567,22 @@ if (restartBtn) {
       }
     }
 
-    // Player movement via on-screen joystick
+    // Player movement via on-screen joystick or keyboard
     const margin = gs(16);
     if (!state.dead) {
+      const spd = gs(420);
+      // Joystick
       if (joy.active) {
-        const spd = gs(420);
         player.x += joy.x * spd * dt;
         player.y += joy.y * spd * dt;
+      }
+      // Keyboard (WASD/Arrows)
+      const kx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      const ky = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
+      if (kx || ky) {
+        const len = Math.hypot(kx, ky) || 1;
+        player.x += (kx / len) * spd * dt;
+        player.y += (ky / len) * spd * dt;
       }
       player.x = clamp(player.x, margin, cw - margin);
       player.y = clamp(player.y, margin + getHudHeight(), ch - margin);
