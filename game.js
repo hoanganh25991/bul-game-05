@@ -89,6 +89,7 @@
     enemiesSpawned: 0,
     totalToSpawn: 30,
     won: false,
+    bossSpawned: false,
     mgActive: false,
     mgTime: 0,
     mgDuration: 5,
@@ -120,6 +121,7 @@
   const eBullets = []; // enemy bullets
   const enemies = [];
   const particles = []; // explosion particles
+  let boss = null; // Boss entity when present
 
   // Stars background
   let stars = [];
@@ -363,6 +365,8 @@
     pBullets.length = 0;
     eBullets.length = 0;
     particles.length = 0;
+    boss = null;
+    state.bossSpawned = false;
     player.x = cw * 0.5;
     player.y = ch * 0.75;
     // Apply responsive scale to player size
@@ -439,8 +443,8 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
 
   // Spawning
   function spawnEnemy() {
-    // Giới hạn số địch sinh ra cho màn 1
-    if (state.enemiesSpawned >= state.totalToSpawn) return;
+    // Dừng sinh thêm nếu trùm đã xuất hiện
+    if (state.bossSpawned || boss) return;
 
     const d = getDifficulty();
     const size = gs(rand(22, 34));
@@ -636,8 +640,8 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       }
     }
 
-    // Spawn enemies
-    if (!state.dead) {
+    // Spawn enemies (tiếp tục cho đến khi gặp trùm)
+    if (!state.dead && !boss && !state.bossSpawned) {
     state.spawnTimer -= dt;
     if (state.spawnTimer <= 0) {
       // Double enemy spawn
@@ -668,6 +672,11 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       }
     }
 
+    // Update boss
+    if (boss) {
+      updateBoss(dt);
+    }
+
     // Update bullets
     for (let i = pBullets.length - 1; i >= 0; i--) {
       const b = pBullets[i];
@@ -679,6 +688,58 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
     }
     for (let i = eBullets.length - 1; i >= 0; i--) {
       const b = eBullets[i];
+
+      // Boss laser beam handling (vertical beam from boss downward)
+      if (b.type === "laser") {
+        if (b.phase === "charge") {
+          b.charge -= dt;
+          if (b.charge <= 0) {
+            b.phase = "fire";
+          }
+        } else {
+          // fire phase
+          b.fire -= dt;
+          // Damage if player intersects beam column (invincibility window in damagePlayer handles rate)
+          if (!state.dead) {
+            if (player.y > b.y && Math.abs(player.x - b.x) <= b.width * 0.5) {
+              damagePlayer();
+            }
+          }
+          if (b.fire <= 0) {
+            eBullets.splice(i, 1);
+            continue;
+          }
+        }
+        // Laser doesn't move; keep it until finished
+        continue;
+      }
+
+      // Energy orb with timed explosion
+      if (b.type === "orb") {
+        // slow drifting
+        b.vx *= 0.995;
+        b.vy *= 0.995;
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.fuse -= dt;
+
+        const off = (b.x < -30 || b.x > cw + 30 || b.y < -30 || b.y > ch + 30);
+        if (b.fuse <= 0 || off) {
+          // Explode here with AoE
+          if (!state.dead) {
+            const rr = (b.explodeR + player.r) * (b.explodeR + player.r);
+            if (dist2(b.x, b.y, player.x, player.y) <= rr) {
+              damagePlayer();
+            }
+          }
+          spawnExplosion(b.x, b.y, Math.floor(40 + b.explodeR * 0.4), "enemy");
+          eBullets.splice(i, 1);
+          continue;
+        }
+        continue;
+      }
+
+      // Default enemy bullet
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       if (b.y < -20 || b.y > ch + 20 || b.x < -20 || b.x > cw + 20) {
@@ -718,20 +779,56 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       }
     }
 
+    // Collisions: player bullets vs boss
+    if (boss) {
+      for (let j = pBullets.length - 1; j >= 0; j--) {
+        const b = pBullets[j];
+        const rrB = (boss.r + b.r) * (boss.r + b.r);
+        if (dist2(boss.x, boss.y, b.x, b.y) <= rrB) {
+          pBullets.splice(j, 1);
+          boss.hp -= 1;
+          if (boss.hp <= 0) {
+            spawnExplosion(boss.x, boss.y, 200, "enemy");
+            boss = null;
+            state.score += 2000;
+            updateHUD();
+            if (!state.won) {
+              winGame();
+              return;
+            }
+          }
+        }
+      }
+      // Boss collides with player body
+      const rrBody = (boss.r + player.r) * (boss.r + player.r);
+      if (!state.dead && dist2(boss.x, boss.y, player.x, player.y) <= rrBody) {
+        damagePlayer();
+      }
+    }
+
     // Collisions: enemy bullets vs player
     for (let i = eBullets.length - 1; i >= 0; i--) {
       const b = eBullets[i];
+      if (b.type === "laser") continue; // laser damage handled during update
       const rr = (player.r + b.r) * (player.r + b.r);
       if (!state.dead && dist2(player.x, player.y, b.x, b.y) <= rr) {
+        if (b.type === "orb") {
+          // visual pop on direct hit
+          spawnExplosion(b.x, b.y, Math.floor(40 + (b.explodeR || gs(90)) * 0.4), "enemy");
+        }
         eBullets.splice(i, 1);
         damagePlayer();
       }
     }
 
-    // Victory condition: hoàn thành màn 1 khi đã sinh đủ địch và tiêu diệt hết
-    if (!state.dead && !state.won && state.enemiesSpawned >= state.totalToSpawn && enemies.length === 0) {
-      winGame();
-      return;
+    // Boss trigger theo điểm: đạt 5000 điểm sẽ gặp trùm; hạ trùm là thắng
+    if (!state.dead && !state.won) {
+      if (!state.bossSpawned && !boss && state.score >= 5000) {
+        spawnBoss();
+      } else if (state.bossSpawned && !boss) {
+        winGame();
+        return;
+      }
     }
   }
 
@@ -766,17 +863,55 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       ctx.fill();
     }
 
-    // Enemy bullets
-    ctx.fillStyle = "#ff3b81";
+    // Enemy bullets (normal, orbs, lasers)
     for (let b of eBullets) {
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      ctx.fill();
+      if (b.type === "laser") {
+        const beamW = b.phase === "fire" ? b.width : Math.max(2, b.width * 0.35);
+        const grad = ctx.createLinearGradient(b.x, b.y, b.x, ch);
+        grad.addColorStop(0, "rgba(255,59,129,0.9)");
+        grad.addColorStop(1, "rgba(255,59,129,0.0)");
+        ctx.save();
+        ctx.globalAlpha = b.phase === "charge" ? 0.6 : 1.0;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.rect(b.x - beamW * 0.5, b.y, beamW, ch - b.y);
+        ctx.fill();
+        // bright core
+        ctx.globalAlpha = b.phase === "charge" ? 0.35 : 0.9;
+        ctx.fillStyle = "rgba(255,219,238,0.95)";
+        ctx.fillRect(b.x - Math.max(1, beamW * 0.15), b.y, Math.max(2, beamW * 0.3), ch - b.y);
+        ctx.restore();
+      } else if (b.type === "orb") {
+        const a = Math.max(0, b.fuse / b.maxFuse);
+        const glowR = b.r + gs(14) * (0.5 + 0.5 * a);
+        const g = ctx.createRadialGradient(b.x, b.y, b.r * 0.25, b.x, b.y, glowR);
+        g.addColorStop(0, "rgba(255,219,238,0.95)");
+        g.addColorStop(1, "rgba(255,59,129,0.25)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, glowR, 0, Math.PI * 2);
+        ctx.fill();
+        // core
+        ctx.fillStyle = "#ff3b81";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#ff3b81";
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // Enemies
     for (let e of enemies) {
       drawEnemy(e);
+    }
+
+    // Boss
+    if (boss) {
+      drawBoss(boss);
     }
 
     // Explosions
@@ -922,6 +1057,110 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
     ctx.ellipse(0, -h * 0.2, w * 0.18, h * 0.2, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.restore();
+  }
+
+  // Boss logic
+  function spawnBoss() {
+    const entryY = Math.max(gs(150), getHudHeight() + gs(120));
+    boss = {
+      x: cw * 0.5,
+      y: -gs(120),
+      w: gs(140),
+      h: gs(120),
+      r: gs(60),
+      hp: 120,
+      t: 0,
+      entryY,
+      entering: true,
+      orbTimer: 1.2,
+      laserTimer: 3.0,
+    };
+    state.bossSpawned = true;
+  }
+  function updateBoss(dt) {
+    if (!boss) return;
+    boss.t += dt;
+    if (boss.entering) {
+      boss.y += gs(120) * dt;
+      if (boss.y >= boss.entryY) {
+        boss.y = boss.entryY;
+        boss.entering = false;
+      }
+    } else {
+      const tx = cw * 0.5 + Math.sin(boss.t * 0.7) * gs(180);
+      const lerp = 1 - Math.pow(0.0001, dt);
+      boss.x += (tx - boss.x) * lerp;
+    }
+    // Orbs
+    boss.orbTimer -= dt;
+    if (boss.orbTimer <= 0) {
+      const d = Math.atan2(player.y - boss.y, player.x - boss.x) + rand(-0.05, 0.05);
+      const spd = gs(160);
+      const vx = Math.cos(d) * spd;
+      const vy = Math.sin(d) * spd;
+      const r = gs(12);
+      const fuse = 1.3;
+      const explodeR = gs(90);
+      eBullets.push({ type: "orb", x: boss.x, y: boss.y + boss.h * 0.4, vx, vy, r, fuse, maxFuse: fuse, explodeR });
+      boss.orbTimer = rand(0.9, 1.6);
+    }
+    // Laser
+    boss.laserTimer -= dt;
+    if (boss.laserTimer <= 0 && !eBullets.some(b => b.type === "laser")) {
+      const width = gs(40);
+      eBullets.push({ type: "laser", x: boss.x, y: boss.y + boss.h * 0.55, width, phase: "charge", charge: 0.8, fire: 1.2 });
+      boss.laserTimer = rand(5.0, 7.5);
+    }
+  }
+  function drawBoss(b) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    // glow
+    const g = ctx.createRadialGradient(0, 0, 6, 0, 0, b.r + 14);
+    g.addColorStop(0, "rgba(255,59,129,0.28)");
+    g.addColorStop(1, "rgba(255,59,129,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, b.r + 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // body
+    const w = b.w, h = b.h;
+    ctx.fillStyle = "#ff8fb6";
+    ctx.beginPath();
+    ctx.moveTo(0, -h * 0.55);
+    ctx.lineTo(-w * 0.6, -h * 0.05);
+    ctx.lineTo(-w * 0.45, h * 0.55);
+    ctx.lineTo(w * 0.45, h * 0.55);
+    ctx.lineTo(w * 0.6, -h * 0.05);
+    ctx.closePath();
+    ctx.fill();
+
+    // cockpit
+    ctx.fillStyle = "#ff3b81";
+    ctx.beginPath();
+    ctx.ellipse(0, -h * 0.15, w * 0.22, h * 0.24, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // turrets
+    ctx.fillStyle = "#ffd1e2";
+    ctx.fillRect(-w * 0.4, h * 0.3, w * 0.12, h * 0.12);
+    ctx.fillRect(w * 0.28, h * 0.3, w * 0.12, h * 0.12);
+
+    ctx.restore();
+
+    // HP bar
+    ctx.save();
+    const barW = Math.min(cw * 0.6, gs(600));
+    const barH = gs(10);
+    const bx = (cw - barW) * 0.5;
+    const by = getHudHeight() + gs(10);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = "#ff3b81";
+    const ratio = clamp(b.hp / 120, 0, 1);
+    ctx.fillRect(bx, by, barW * ratio, barH);
     ctx.restore();
   }
 
