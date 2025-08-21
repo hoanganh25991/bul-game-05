@@ -350,22 +350,18 @@
     gameoverEl.classList.remove("hidden");
   }
 
-if (startBtn) startBtn.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "touch") return;
+if (startBtn) startBtn.addEventListener("click", (e) => {
   startGame();
   e.preventDefault();
-}, { passive: false });
-if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "touch") return;
+});
+if (restartBtn) restartBtn.addEventListener("click", (e) => {
   startGame();
   e.preventDefault();
-}, { passive: false });
+});
 
   // Extra start triggers for robustness: click anywhere on overlay, or press Enter/Space
   function tryStartFromUI(e) {
     if (state.running) return;
-    // Only allow touch to start the game when using pointer events
-    if (e && "pointerType" in e && e.pointerType !== "touch") return;
     const startVisible = overlay && !overlay.classList.contains("hidden");
     const gameoverVisible = gameoverEl && !gameoverEl.classList.contains("hidden");
     if (startVisible || gameoverVisible) {
@@ -373,7 +369,15 @@ if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
       if (e) e.preventDefault();
     }
   }
-  if (overlay) overlay.addEventListener("pointerdown", tryStartFromUI);
+  if (overlay) {
+    overlay.addEventListener("click", tryStartFromUI);
+  }
+  window.addEventListener("keydown", (e) => {
+    if (state.running) return;
+    if (e.code === "Enter" || e.code === "Space" || e.key === " " || e.key === "Spacebar") {
+      tryStartFromUI(e);
+    }
+  });
 
   // Spawning
   function spawnEnemy() {
