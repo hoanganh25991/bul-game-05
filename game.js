@@ -66,6 +66,7 @@
 
   if (joystick) {
     joystick.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
       joy.active = true;
       joy.id = e.pointerId;
       updateJoyFromPointer(e);
@@ -73,12 +74,12 @@
       e.preventDefault();
     }, { passive: false });
     joystick.addEventListener("pointermove", (e) => {
-      if (!joy.active || e.pointerId !== joy.id) return;
+      if (e.pointerType !== "touch" || !joy.active || e.pointerId !== joy.id) return;
       updateJoyFromPointer(e);
       e.preventDefault();
     }, { passive: false });
     const joyEnd = (e) => {
-      if (e.pointerId !== joy.id) return;
+      if (e.pointerType !== "touch" || e.pointerId !== joy.id) return;
       resetJoy();
       if (joystick.releasePointerCapture) joystick.releasePointerCapture(e.pointerId);
       e.preventDefault();
@@ -264,23 +265,6 @@
     }, { passive: false });
   }
 
-  // Keyboard input (Space to fire, '1' to activate MG). Movement via keys removed.
-  function handleKey(e, down) {
-    if (!state.running) return;
-    if (e.code === "Space" || e.key === " " || e.key === "Spacebar") {
-      state.isFiring = down;
-      e.preventDefault();
-      return;
-    }
-    if (down && (e.code === "Digit1" || e.code === "Numpad1" || e.key === "1")) {
-      activateMG();
-      e.preventDefault();
-      return;
-    }
-  }
-  // Ensure keyboard listeners are registered
-  window.addEventListener("keydown", (e) => handleKey(e, true));
-  window.addEventListener("keyup", (e) => handleKey(e, false));
 
   // Game control
   function resetGame() {
@@ -350,14 +334,16 @@
     gameoverEl.classList.remove("hidden");
   }
 
-if (startBtn) startBtn.addEventListener("click", (e) => {
+if (startBtn) startBtn.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
   startGame();
   e.preventDefault();
-});
-if (restartBtn) restartBtn.addEventListener("click", (e) => {
+}, { passive: false });
+if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
   startGame();
   e.preventDefault();
-});
+}, { passive: false });
 
   // Extra start triggers for robustness: click anywhere on overlay, or press Enter/Space
   function tryStartFromUI(e) {
@@ -370,14 +356,12 @@ if (restartBtn) restartBtn.addEventListener("click", (e) => {
     }
   }
   if (overlay) {
-    overlay.addEventListener("click", tryStartFromUI);
-  }
-  window.addEventListener("keydown", (e) => {
-    if (state.running) return;
-    if (e.code === "Enter" || e.code === "Space" || e.key === " " || e.key === "Spacebar") {
+    overlay.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
       tryStartFromUI(e);
-    }
-  });
+      e.preventDefault();
+    }, { passive: false });
+  }
 
   // Spawning
   function spawnEnemy() {
