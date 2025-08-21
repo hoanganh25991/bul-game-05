@@ -22,17 +22,72 @@
   const finalScoreEl = document.getElementById("finalScore");
 
   // On-screen controls
-  const joystickEl = document.getElementById("joystick");
-  const joyStickKnob = joystickEl ? joystickEl.querySelector(".joy-stick") : null;
   const fireBtn = document.getElementById("fireBtn");
   const mgBtn = document.getElementById("mgBtn");
+  const joystick = document.getElementById("joystick");
+  const joyKnob = joystick ? joystick.querySelector(".joy-stick") : null;
 
-  const joystick = {
-    active: false,
-    dx: 0,
-    dy: 0,
-    pointerId: null,
-  };
+  // Joystick state (-1..1)
+  const joy = { active: false, id: null, x: 0, y: 0 };
+
+  function resetJoy() {
+    joy.active = false;
+    joy.id = null;
+    joy.x = 0;
+    joy.y = 0;
+    if (joyKnob) joyKnob.style.transform = "translate(-50%, -50%)";
+    if (joystick) joystick.setAttribute("aria-valuenow", "0");
+  }
+
+  function updateJoyFromPointer(e) {
+    if (!joystick) return;
+    const rect = joystick.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    let dx = e.clientX - cx;
+    let dy = e.clientY - cy;
+    const max = Math.min(rect.width, rect.height) * 0.5 - 8;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const cl = Math.min(len, max);
+      dx = (dx / len) * cl;
+      dy = (dy / len) * cl;
+    } else {
+      dx = 0; dy = 0;
+    }
+    joy.x = clamp(dx / max, -1, 1);
+    joy.y = clamp(dy / max, -1, 1);
+    if (joyKnob) {
+      joyKnob.style.transform = `translate(-50%, -50%) translate(${dx}px, ${dy}px)`;
+    }
+    const magnitude = Math.min(1, Math.hypot(joy.x, joy.y));
+    joystick.setAttribute("aria-valuenow", String(Math.round(magnitude * 100) / 100));
+  }
+
+  if (joystick) {
+    joystick.addEventListener("pointerdown", (e) => {
+      joy.active = true;
+      joy.id = e.pointerId;
+      updateJoyFromPointer(e);
+      if (joystick.setPointerCapture) joystick.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    }, { passive: false });
+    joystick.addEventListener("pointermove", (e) => {
+      if (!joy.active || e.pointerId !== joy.id) return;
+      updateJoyFromPointer(e);
+      e.preventDefault();
+    }, { passive: false });
+    const joyEnd = (e) => {
+      if (e.pointerId !== joy.id) return;
+      resetJoy();
+      if (joystick.releasePointerCapture) joystick.releasePointerCapture(e.pointerId);
+      e.preventDefault();
+    };
+    joystick.addEventListener("pointerup", joyEnd, { passive: false });
+    joystick.addEventListener("pointercancel", joyEnd, { passive: false });
+  }
+
+  window.addEventListener("blur", resetJoy);
 
   const heldFirePointers = new Set();
 
@@ -106,7 +161,6 @@
     fireCooldown: 0,
     invUntil: 0,
   };
-  const pointer = { x: player.x, y: player.y };
   const wingmen = [];
   const WINGMAN_OFFSETS = [
     { x: -80, y: 30 },
@@ -160,108 +214,18 @@
   }
 
   // Input
-  function updatePointerFromEvent(e) {
-    const rect = canvas.getBoundingClientRect();
-    pointer.x = e.clientX - rect.left;
-    pointer.y = e.clientY - rect.top;
-  }
 
-  canvas.addEventListener("pointermove", (e) => {
-    updatePointerFromEvent(e);
-  });
 
-  window.addEventListener("pointerdown", (e) => {
-    if (!state.running) return;
-    // Mouse no longer controls firing; only update pointer position
-    updatePointerFromEvent(e);
-  });
-  window.addEventListener("pointerup", (e) => {
-    if (!state.running) return;
-  });
   window.addEventListener("blur", () => {
     state.isFiring = false;
   });
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  // Setup on-screen joystick
-  function joyUpdateFromEvent(e) {
-    if (!joystickEl || !joystick.active || e.pointerId !== joystick.pointerId) return;
-    const rect = joystickEl.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-
-    const knobR = joyStickKnob ? joyStickKnob.offsetWidth * 0.5 : 0;
-    const maxR = Math.max(10, Math.min(rect.width, rect.height) * 0.5 - knobR);
-
-    let dx = e.clientX - cx;
-    let dy = e.clientY - cy;
-
-    const len = Math.hypot(dx, dy);
-    if (len > 0) {
-      const ratio = Math.min(1, len / maxR);
-      dx = (dx / len) * ratio;
-      dy = (dy / len) * ratio;
-    } else {
-      dx = 0;
-      dy = 0;
-    }
-
-    joystick.dx = clamp(dx, -1, 1);
-    joystick.dy = clamp(dy, -1, 1);
-
-    if (joyStickKnob) {
-      const px = joystick.dx * maxR;
-      const py = joystick.dy * maxR;
-      joyStickKnob.style.transform = "translate(calc(-50% + " + px + "px), calc(-50% + " + py + "px))";
-    }
-  }
-
-  function joyStart(e) {
-    if (!joystickEl || joystick.active) return;
-    joystick.active = true;
-    joystick.pointerId = e.pointerId;
-    joystick.dx = 0;
-    joystick.dy = 0;
-    if (joystickEl.setPointerCapture) {
-      try { joystickEl.setPointerCapture(e.pointerId); } catch {}
-    }
-    joyUpdateFromEvent(e);
-    e.preventDefault();
-  }
-
-  function joyMove(e) {
-    if (!joystick.active) return;
-    joyUpdateFromEvent(e);
-    e.preventDefault();
-  }
-
-  function joyEnd(e) {
-    if (!joystick.active || e.pointerId !== joystick.pointerId) return;
-    joystick.active = false;
-    joystick.pointerId = null;
-    joystick.dx = 0;
-    joystick.dy = 0;
-    if (joyStickKnob) {
-      joyStickKnob.style.transform = "translate(-50%, -50%)";
-    }
-    e.preventDefault();
-  }
-
-  if (joystickEl) joystickEl.addEventListener("pointerdown", joyStart, { passive: false });
-  window.addEventListener("pointermove", joyMove, { passive: false });
-  window.addEventListener("pointerup", joyEnd, { passive: false });
-  window.addEventListener("pointercancel", joyEnd, { passive: false });
-  window.addEventListener("blur", () => {
-    // reset joystick on blur
-    joystick.active = false;
-    joystick.pointerId = null;
-    joystick.dx = 0;
-    joystick.dy = 0;
-    if (joyStickKnob) joyStickKnob.style.transform = "translate(-50%, -50%)";
-  });
+  // Remove on-screen joystick: no-op
 
   // Setup fire button to toggle continuous firing while pressed
   function fireDown(e) {
+    if (e.pointerType !== "touch") return;
     heldFirePointers.add(e.pointerId);
     state.isFiring = heldFirePointers.size > 0;
     if (fireBtn) fireBtn.classList.add("active");
@@ -293,55 +257,28 @@
   }
 
   if (mgBtn) {
-    mgBtn.addEventListener("click", (e) => {
-      activateMG();
-      e.preventDefault();
-    });
     mgBtn.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
       activateMG();
       e.preventDefault();
     }, { passive: false });
   }
 
-  // Keyboard input (arrow keys)
-  const keys = { left: false, right: false, up: false, down: false };
+  // Keyboard input (Space to fire, '1' to activate MG). Movement via keys removed.
   function handleKey(e, down) {
     if (!state.running) return;
-    // Space to fire on hold
     if (e.code === "Space" || e.key === " " || e.key === "Spacebar") {
       state.isFiring = down;
       e.preventDefault();
       return;
     }
-    // '1' to activate machine gun skill
     if (down && (e.code === "Digit1" || e.code === "Numpad1" || e.key === "1")) {
       activateMG();
       e.preventDefault();
       return;
     }
-    switch (e.key) {
-      case "ArrowLeft":
-      case "Left":
-        keys.left = down;
-        e.preventDefault();
-        break;
-      case "ArrowRight":
-      case "Right":
-        keys.right = down;
-        e.preventDefault();
-        break;
-      case "ArrowUp":
-      case "Up":
-        keys.up = down;
-        e.preventDefault();
-        break;
-      case "ArrowDown":
-      case "Down":
-        keys.down = down;
-        e.preventDefault();
-        break;
-    }
   }
+  // Ensure keyboard listeners are registered
   window.addEventListener("keydown", (e) => handleKey(e, true));
   window.addEventListener("keyup", (e) => handleKey(e, false));
 
@@ -375,8 +312,6 @@
     player.r = gs(14);
     player.fireCooldown = 0;
     player.invUntil = 0;
-    pointer.x = player.x;
-    pointer.y = player.y;
     // Setup wingmen formation around player
     wingmen.length = 0;
     for (let i = 0; i < WINGMAN_OFFSETS.length; i++) {
@@ -415,16 +350,22 @@
     gameoverEl.classList.remove("hidden");
   }
 
-if (startBtn) startBtn.addEventListener("click", () => {
+if (startBtn) startBtn.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
   startGame();
-});
-if (restartBtn) restartBtn.addEventListener("click", () => {
+  e.preventDefault();
+}, { passive: false });
+if (restartBtn) restartBtn.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch") return;
   startGame();
-});
+  e.preventDefault();
+}, { passive: false });
 
   // Extra start triggers for robustness: click anywhere on overlay, or press Enter/Space
   function tryStartFromUI(e) {
     if (state.running) return;
+    // Only allow touch to start the game when using pointer events
+    if (e && "pointerType" in e && e.pointerType !== "touch") return;
     const startVisible = overlay && !overlay.classList.contains("hidden");
     const gameoverVisible = gameoverEl && !gameoverEl.classList.contains("hidden");
     if (startVisible || gameoverVisible) {
@@ -432,14 +373,7 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       if (e) e.preventDefault();
     }
   }
-  if (overlay) overlay.addEventListener("click", tryStartFromUI);
   if (overlay) overlay.addEventListener("pointerdown", tryStartFromUI);
-  window.addEventListener("keydown", (e) => {
-    if (state.running) return;
-    if (e.code === "Enter" || e.code === "Space" || e.key === " " || e.key === "Spacebar") {
-      tryStartFromUI(e);
-    }
-  });
 
   // Spawning
   function spawnEnemy() {
@@ -572,36 +506,16 @@ if (restartBtn) restartBtn.addEventListener("click", () => {
       }
     }
 
-    // Player movement: arrow keys OR smooth follow to pointer
+    // Player movement via on-screen joystick
     const margin = gs(16);
     if (!state.dead) {
-    let kx, ky;
-    if (joystick.active) {
-      // Analog from on-screen joystick
-      kx = joystick.dx;
-      ky = joystick.dy;
-    } else {
-      // Keyboard arrows
-      kx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-      ky = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
-    }
-
-    if (kx !== 0 || ky !== 0) {
-      const speed = gs(420); // px per second
-      const len = Math.hypot(kx, ky) || 1;
-      player.x += (kx / len) * speed * dt;
-      player.y += (ky / len) * speed * dt;
-      // Keep pointer in sync to prevent tug-of-war
-      pointer.x = player.x;
-      pointer.y = player.y;
-    } else {
-      // smooth follow mouse/touch pointer
-      const lerp = 1 - Math.pow(0.0001, dt); // time-based smoothing
-      player.x += (pointer.x - player.x) * lerp;
-      player.y += (pointer.y - player.y) * lerp;
-    }
-    player.x = clamp(player.x, margin, cw - margin);
-    player.y = clamp(player.y, margin + getHudHeight(), ch - margin); // avoid top HUD overlap too much
+      if (joy.active) {
+        const spd = gs(420);
+        player.x += joy.x * spd * dt;
+        player.y += joy.y * spd * dt;
+      }
+      player.x = clamp(player.x, margin, cw - margin);
+      player.y = clamp(player.y, margin + getHudHeight(), ch - margin);
     }
 
     // Wingmen follow formation

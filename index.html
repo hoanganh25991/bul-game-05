@@ -24,7 +24,7 @@
 
       <div id="overlay" class="overlay">
         <h1 id="title">Hạm Đội Xuất Kích</h1>
-        <p>Di chuột hoặc phím mũi tên để điều khiển tàu. Nhấn và giữ phím Space để bắn.</p>
+        <p>Nhấn và giữ phím Space để bắn.</p>
         <button id="startBtn">Bắt đầu</button>
       </div>
 
@@ -36,11 +36,10 @@
 
       <!-- On-screen controls -->
       <div id="controls" class="controls" aria-hidden="false">
-        <div id="joystick" class="joystick" aria-label="Cần điều khiển">
+        <div id="joystick" class="joystick" aria-label="Cần điều khiển" role="slider" aria-valuemin="-1" aria-valuemax="1" aria-valuenow="0">
           <div class="joy-bg"></div>
           <div class="joy-stick"></div>
         </div>
-
         <button id="mgBtn" class="mg-btn" aria-label="Súng máy" title="Súng máy (phím 1)">🔫×2</button>
         <button id="fireBtn" class="fire-btn" aria-label="Bắn" title="Bắn">🔫</button>
       </div>
