@@ -13,8 +13,8 @@
   // - ENEMY_SPEED_DIVISOR: giảm tốc độ di chuyển của quân địch (bao gồm Boss) xuống 1/5
   // - ENEMY_BULLET_SPEED_DIVISOR: giảm tốc độ đạn của địch xuống 1/5
   const FIRE_RATE_MULTIPLIER = 5;
-  const ENEMY_SPEED_DIVISOR = 3;
-  const ENEMY_BULLET_SPEED_DIVISOR = 40;
+  const ENEMY_SPEED_DIVISOR = 5;
+  const ENEMY_BULLET_SPEED_DIVISOR = 5;
 
   // DOM
   const canvas = document.getElementById("game");
@@ -299,15 +299,32 @@
   }
 
   // Kích hoạt "rung động thời gian" (làm chậm thời gian tạm thời)
+  function deactivateTimeVibe() {
+    state.timeVibeActive = false;
+    state.timeVibeRemaining = 0;
+    state.timeVibeFactor = 1;
+    if (mgBtn) mgBtn.classList.remove("active");
+  }
   function activateTimeVibe(duration = 5, factor = 0.5) {
+    if (!state.running || state.dead) return;
+    // Chỉ cho phép một kỹ năng tối thượng hoạt động tại một thời điểm
+    if (state.missileActive) deactivateMissiles();
     state.timeVibeActive = true;
     state.timeVibeRemaining = duration;
     state.timeVibeFactor = factor;
+    if (mgBtn) mgBtn.classList.add("active");
   }
 
   // Kích hoạt "tên lửa truy đuổi" (bắn tên lửa tự tìm mục tiêu trong 10 giây)
+  function deactivateMissiles() {
+    state.missileActive = false;
+    state.missileTime = 0;
+    if (missileBtn) missileBtn.classList.remove("active");
+  }
   function activateMissiles() {
     if (!state.running || state.dead) return;
+    // Chỉ cho phép một kỹ năng tối thượng hoạt động tại một thời điểm
+    if (state.timeVibeActive) deactivateTimeVibe();
     state.missileActive = true;
     state.missileTime = state.missileDuration;
     state.missileCd = 0;
@@ -738,9 +755,7 @@ if (restartBtn) {
         state.missileCd = 0.3; // spawn every 0.3s
       }
       if (state.missileTime <= 0) {
-        state.missileActive = false;
-        state.missileTime = 0;
-        if (missileBtn) missileBtn.classList.remove("active");
+        deactivateMissiles();
       }
     }
 
@@ -1367,9 +1382,7 @@ if (restartBtn) {
     if (state.timeVibeActive) {
       state.timeVibeRemaining -= dt;
       if (state.timeVibeRemaining <= 0) {
-        state.timeVibeActive = false;
-        state.timeVibeRemaining = 0;
-        state.timeVibeFactor = 1;
+        deactivateTimeVibe();
       }
     }
     const tScale = state.timeVibeActive ? state.timeVibeFactor : 1;
