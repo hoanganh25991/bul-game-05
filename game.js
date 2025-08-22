@@ -1,4 +1,4 @@
-/* Chiến Tranh Ngân Hà - Move with mouse or arrows, hold Space to shoot
+/* Chiến Tranh Ngân Hà - Move with mouse or arrows, Space to launch missiles
    Canvas arcade shooter - Vanilla JS
 */
 (() => {
@@ -98,7 +98,7 @@
   window.addEventListener("blur", resetJoy);
 
   const heldFirePointers = new Set();
-  // Keyboard state for desktop controls (WASD/Arrows + Space to fire)
+  // Keyboard state for desktop controls (WASD/Arrows to move)
   const keys = { left: false, right: false, up: false, down: false };
 
   // Canvas size + DPR for crisp rendering
@@ -304,6 +304,7 @@
     state.timeVibeRemaining = 0;
     state.timeVibeFactor = 1;
     if (mgBtn) mgBtn.classList.remove("active");
+    updateUltButtonsVisibility();
   }
   function activateTimeVibe(duration = 5, factor = 0.5) {
     if (!state.running || state.dead) return;
@@ -313,6 +314,7 @@
     state.timeVibeRemaining = duration;
     state.timeVibeFactor = factor;
     if (mgBtn) mgBtn.classList.add("active");
+    updateUltButtonsVisibility();
   }
 
   // Kích hoạt "tên lửa truy đuổi" (bắn tên lửa tự tìm mục tiêu trong 10 giây)
@@ -320,6 +322,7 @@
     state.missileActive = false;
     state.missileTime = 0;
     if (missileBtn) missileBtn.classList.remove("active");
+    updateUltButtonsVisibility();
   }
   function activateMissiles() {
     if (!state.running || state.dead) return;
@@ -329,6 +332,13 @@
     state.missileTime = state.missileDuration;
     state.missileCd = 0;
     if (missileBtn) missileBtn.classList.add("active");
+    updateUltButtonsVisibility();
+  }
+
+  function updateUltButtonsVisibility() {
+    // Khi kích hoạt kỹ năng, chỉ hiện nút của kỹ năng đang hoạt động; khi không kích hoạt, hiện cả hai
+    if (missileBtn) missileBtn.style.display = (state.missileActive || (!state.missileActive && !state.timeVibeActive)) ? "" : "none";
+    if (mgBtn) mgBtn.style.display = (state.timeVibeActive || (!state.missileActive && !state.timeVibeActive)) ? "" : "none";
   }
 
   if (mgBtn) {
@@ -348,25 +358,25 @@
     missileBtn.addEventListener("click", onMissile);
   }
 
-  // Keyboard controls (WASD/Arrows to move, Space to fire)
+  // Keyboard controls (WASD/Arrows to move, Space to launch missiles)
   window.addEventListener("keydown", (e) => {
     switch (e.key) {
-      case "1": activateMissiles(); e.preventDefault(); break;
+      case "1": state.isFiring = true; e.preventDefault(); break;
       case "2": activateTimeVibe(5, 0.5); e.preventDefault(); break;
       case "ArrowLeft": case "a": case "A": keys.left = true; e.preventDefault(); break;
       case "ArrowRight": case "d": case "D": keys.right = true; e.preventDefault(); break;
       case "ArrowUp": case "w": case "W": keys.up = true; e.preventDefault(); break;
       case "ArrowDown": case "s": case "S": keys.down = true; e.preventDefault(); break;
-      case " ": case "Spacebar": state.isFiring = true; e.preventDefault(); break;
+      case " ": case "Spacebar": activateMissiles(); e.preventDefault(); break;
     }
   });
   window.addEventListener("keyup", (e) => {
     switch (e.key) {
+      case "1": state.isFiring = heldFirePointers.size > 0; break;
       case "ArrowLeft": case "a": case "A": keys.left = false; break;
       case "ArrowRight": case "d": case "D": keys.right = false; break;
       case "ArrowUp": case "w": case "W": keys.up = false; break;
       case "ArrowDown": case "s": case "S": keys.down = false; break;
-      case " ": case "Spacebar": state.isFiring = false; break;
     }
   });
 
@@ -391,6 +401,7 @@
     state.missileTime = 0;
     state.missileCd = 0;
     if (missileBtn) missileBtn.classList.remove("active");
+    updateUltButtonsVisibility();
     enemies.length = 0;
     pBullets.length = 0;
     eBullets.length = 0;
@@ -545,14 +556,14 @@ if (restartBtn) {
     eBullets.push({ x: ex, y: ey, vx, vy, r: gs(3.5) });
   }
 
-  // Spawn a homing missile from player
-  function spawnMissile() {
+  // Spawn a homing missile (from any origin; defaults to player)
+  function spawnMissile(sx = player.x, sy = player.y - player.h * 0.6) {
     const speed = gs(520);
     const turn = 6.0; // rad/s turn rate
     const r = gs(5);
     missiles.push({
-      x: player.x,
-      y: player.y - player.h * 0.6,
+      x: sx,
+      y: sy,
       vx: 0,
       vy: -speed,
       speed,
@@ -751,7 +762,12 @@ if (restartBtn) {
       state.missileTime -= dt;
       state.missileCd -= dt;
       if (state.missileCd <= 0) {
+        // Player launches a missile
         spawnMissile();
+        // Wingmen also launch missiles
+        for (let wm of wingmen) {
+          spawnMissile(wm.x, wm.y - player.h * 0.6);
+        }
         state.missileCd = 0.3; // spawn every 0.3s
       }
       if (state.missileTime <= 0) {
@@ -834,17 +850,25 @@ if (restartBtn) {
         continue;
       }
 
-      // Energy orb with timed explosion
+      // Energy orb with timed explosion (must fly far before exploding)
       if (b.type === "orb") {
-        // slow drifting
-        b.vx *= 0.995;
-        b.vy *= 0.995;
+        // slow drifting with configurable friction
+        const fr = b.friction ?? 0.995;
+        b.vx *= fr;
+        b.vy *= fr;
         b.x += b.vx * dtEnemy;
         b.y += b.vy * dtEnemy;
         b.fuse -= dtEnemy;
 
+        // accumulate traveled distance
+        const spdNow = Math.hypot(b.vx, b.vy);
+        b.traveled = (b.traveled || 0) + spdNow * dtEnemy;
+
         const off = (b.x < -30 || b.x > cw + 30 || b.y < -30 || b.y > ch + 30);
-        if (b.fuse <= 0 || off) {
+        const minTravel = b.minTravel || 0;
+
+        // Only explode when it has flown far enough OR leaves screen
+        if ((b.fuse <= 0 && b.traveled >= minTravel) || off) {
           // Explode here with AoE
           if (!state.dead) {
             const rr = (b.explodeR + player.r) * (b.explodeR + player.r);
@@ -1058,8 +1082,6 @@ if (restartBtn) {
       ctx.fill();
     }
 
-    // Homing missiles
-    drawMissiles();
 
     // Enemy bullets (normal, orbs, lasers)
     for (let b of eBullets) {
@@ -1122,6 +1144,9 @@ if (restartBtn) {
 
     // Player
     if (!state.dead) drawPlayer();
+
+    // Homing missiles (draw on top of ships for visibility)
+    drawMissiles();
   }
 
   function drawPlayer() {
@@ -1295,13 +1320,15 @@ if (restartBtn) {
     boss.orbTimer -= dt;
     if (boss.orbTimer <= 0) {
       const d = Math.atan2(player.y - boss.y, player.x - boss.x) + rand(-0.05, 0.05);
-      const spd = gs(160) / ENEMY_BULLET_SPEED_DIVISOR;
+      const spd = gs(240) / ENEMY_BULLET_SPEED_DIVISOR; // slightly faster so it can travel farther
       const vx = Math.cos(d) * spd;
       const vy = Math.sin(d) * spd;
       const r = gs(12);
-      const fuse = 1.6;
+      const fuse = 4.0; // longer fuse so it won't explode too soon
       const explodeR = gs(90);
-      eBullets.push({ type: "orb", x: boss.x, y: boss.y + boss.h * 0.4, vx, vy, r, fuse, maxFuse: fuse, explodeR });
+      const minTravel = Math.min(cw, ch) * 0.35; // must fly far before exploding
+      const friction = 0.998; // retain more speed over time
+      eBullets.push({ type: "orb", x: boss.x, y: boss.y + boss.h * 0.4, vx, vy, r, fuse, maxFuse: fuse, explodeR, minTravel, traveled: 0, friction });
       boss.orbTimer = rand(0.9, 1.6);
     }
     // Laser
