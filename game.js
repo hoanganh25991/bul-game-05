@@ -35,6 +35,9 @@
   const joystick = document.getElementById("joystick");
   const joyKnob = joystick ? joystick.querySelector(".joy-stick") : null;
 
+const DEFAULT_MG_LABEL = "⏳";
+const DEFAULT_MISSILE_LABEL = "🚀";
+
   // Joystick state (-1..1)
   const joy = { active: false, id: null, x: 0, y: 0 };
 
@@ -166,6 +169,8 @@
     missileTime: 0,
     missileDuration: 10,
     missileCd: 0,
+    mgCooldown: 0,
+    missileCooldown: 0,
   };
 
   // Player
@@ -304,10 +309,13 @@
     state.timeVibeRemaining = 0;
     state.timeVibeFactor = 1;
     if (mgBtn) mgBtn.classList.remove("active");
+    state.mgCooldown = 10;
+    updateCooldownUI();
     updateUltButtonsVisibility();
   }
   function activateTimeVibe(duration = 5, factor = 0.5) {
     if (!state.running || state.dead) return;
+    if (state.timeVibeActive || state.mgCooldown > 0) return;
     // Chỉ cho phép một kỹ năng tối thượng hoạt động tại một thời điểm
     if (state.missileActive) deactivateMissiles();
     state.timeVibeActive = true;
@@ -322,10 +330,13 @@
     state.missileActive = false;
     state.missileTime = 0;
     if (missileBtn) missileBtn.classList.remove("active");
+    state.missileCooldown = 5;
+    updateCooldownUI();
     updateUltButtonsVisibility();
   }
   function activateMissiles() {
     if (!state.running || state.dead) return;
+    if (state.missileActive || state.missileCooldown > 0) return;
     // Chỉ cho phép một kỹ năng tối thượng hoạt động tại một thời điểm
     if (state.timeVibeActive) deactivateTimeVibe();
     state.missileActive = true;
@@ -341,8 +352,51 @@
     if (mgBtn) mgBtn.style.display = (state.timeVibeActive || (!state.missileActive && !state.timeVibeActive)) ? "" : "none";
   }
 
+  // Cập nhật hiển thị đếm ngược hồi chiêu trên nút
+  function updateCooldownUI() {
+    if (mgBtn) {
+      if (state.timeVibeActive) {
+        mgBtn.textContent = DEFAULT_MG_LABEL;
+        mgBtn.disabled = false;
+        mgBtn.setAttribute("aria-label", "Ngưng động thời gian (Phím 2)");
+        mgBtn.title = "Ngưng động thời gian (Phím 2)";
+      } else if (state.mgCooldown > 0) {
+        const s = Math.max(1, Math.ceil(state.mgCooldown));
+        mgBtn.textContent = String(s);
+        mgBtn.disabled = true;
+        mgBtn.setAttribute("aria-label", `Ngưng động thời gian (hồi ${s}s)`);
+        mgBtn.title = `Ngưng động thời gian (hồi ${s}s)`;
+      } else {
+        mgBtn.textContent = DEFAULT_MG_LABEL;
+        mgBtn.disabled = false;
+        mgBtn.setAttribute("aria-label", "Ngưng động thời gian (Phím 2)");
+        mgBtn.title = "Ngưng động thời gian (Phím 2)";
+      }
+    }
+    if (missileBtn) {
+      if (state.missileActive) {
+        missileBtn.textContent = DEFAULT_MISSILE_LABEL;
+        missileBtn.disabled = false;
+        missileBtn.setAttribute("aria-label", "Tên lửa truy đuổi (Space)");
+        missileBtn.title = "Tên lửa truy đuổi (Space)";
+      } else if (state.missileCooldown > 0) {
+        const s2 = Math.max(1, Math.ceil(state.missileCooldown));
+        missileBtn.textContent = String(s2);
+        missileBtn.disabled = true;
+        missileBtn.setAttribute("aria-label", `Tên lửa truy đuổi (hồi ${s2}s)`);
+        missileBtn.title = `Tên lửa truy đuổi (hồi ${s2}s)`;
+      } else {
+        missileBtn.textContent = DEFAULT_MISSILE_LABEL;
+        missileBtn.disabled = false;
+        missileBtn.setAttribute("aria-label", "Tên lửa truy đuổi (Space)");
+        missileBtn.title = "Tên lửa truy đuổi (Space)";
+      }
+    }
+  }
+
   if (mgBtn) {
     const onTime = (e) => {
+      if (state.mgCooldown > 0 || state.timeVibeActive) { e.preventDefault(); return; }
       activateTimeVibe(5, 0.5);
       e.preventDefault();
     };
@@ -351,6 +405,7 @@
   }
   if (missileBtn) {
     const onMissile = (e) => {
+      if (state.missileCooldown > 0 || state.missileActive) { e.preventDefault(); return; }
       activateMissiles();
       e.preventDefault();
     };
@@ -362,12 +417,12 @@
   window.addEventListener("keydown", (e) => {
     switch (e.key) {
       case "1": state.isFiring = true; e.preventDefault(); break;
-      case "2": activateTimeVibe(5, 0.5); e.preventDefault(); break;
+      case "2": if (!state.timeVibeActive && state.mgCooldown <= 0) { activateTimeVibe(5, 0.5); } e.preventDefault(); break;
       case "ArrowLeft": case "a": case "A": keys.left = true; e.preventDefault(); break;
       case "ArrowRight": case "d": case "D": keys.right = true; e.preventDefault(); break;
       case "ArrowUp": case "w": case "W": keys.up = true; e.preventDefault(); break;
       case "ArrowDown": case "s": case "S": keys.down = true; e.preventDefault(); break;
-      case " ": case "Spacebar": activateMissiles(); e.preventDefault(); break;
+      case " ": case "Spacebar": if (!state.missileActive && state.missileCooldown <= 0) { activateMissiles(); } e.preventDefault(); break;
     }
   });
   window.addEventListener("keyup", (e) => {
@@ -401,7 +456,10 @@
     state.missileTime = 0;
     state.missileCd = 0;
     if (missileBtn) missileBtn.classList.remove("active");
+    state.mgCooldown = 0;
+    state.missileCooldown = 0;
     updateUltButtonsVisibility();
+    updateCooldownUI();
     enemies.length = 0;
     pBullets.length = 0;
     eBullets.length = 0;
@@ -515,6 +573,13 @@ if (restartBtn) {
     // Dừng sinh thêm nếu trùm đã xuất hiện
     if (state.bossSpawned || boss) return;
 
+    // Tỉ lệ nhỏ sinh "trùm nhỏ" (mini-boss) sau khi đã có vài đợt
+    if (state.enemiesSpawned > 20 && Math.random() < 0.06) {
+      spawnMiniBoss();
+      state.enemiesSpawned += 1;
+      return;
+    }
+
     const d = getDifficulty();
     const size = gs(rand(22, 34));
     const x = rand(size, cw - size);
@@ -535,6 +600,87 @@ if (restartBtn) {
     });
 
     state.enemiesSpawned += 1;
+  }
+
+  // Mini-boss: bắn súng máy và bắn loạt cầu năng lượng nhanh
+  function spawnMiniBoss() {
+    const size = gs(rand(70, 90));
+    const x = cw * 0.5;
+    const vy = gs(40) / ENEMY_SPEED_DIVISOR;
+    const hp = 60;
+    enemies.push({
+      type: "miniBoss",
+      x,
+      y: -size - gs(20),
+      w: size,
+      h: size * 1.1,
+      r: size * 0.55,
+      vy,
+      t: 0,
+      amp: gs(80) / ENEMY_SPEED_DIVISOR,
+      entryY: Math.max(gs(140), getHudHeight() + gs(110)),
+      entering: true,
+      mgBurstTimer: rand(0.6, 1.2),
+      mgShotTimer: 0,
+      mgShotsRemaining: 0,
+      mgShotInterval: 0.06,
+      orbBurstCd: rand(2.0, 3.2),
+      hp
+    });
+  }
+
+  function updateMiniBoss(e, dtEnemy) {
+    e.t += dtEnemy;
+    if (e.entering) {
+      e.y += e.vy * dtEnemy;
+      if (e.y >= e.entryY) {
+        e.y = e.entryY;
+        e.entering = false;
+      }
+    } else {
+      const tx = cw * 0.5 + Math.sin(e.t * 0.9) * e.amp;
+      const lerp = 1 - Math.pow(0.0001, dtEnemy);
+      e.x += (tx - e.x) * lerp;
+    }
+
+    // Bắn súng máy theo đợt
+    e.mgBurstTimer -= dtEnemy;
+    if (e.mgBurstTimer <= 0 && e.mgShotsRemaining <= 0) {
+      e.mgShotsRemaining = 18;
+      e.mgShotTimer = 0;
+      e.mgBurstTimer = rand(1.4, 2.2);
+    }
+    if (e.mgShotsRemaining > 0) {
+      e.mgShotTimer -= dtEnemy;
+      if (e.mgShotTimer <= 0) {
+        const d = Math.atan2(player.y - (e.y + e.h * 0.2), player.x - e.x) + rand(-0.05, 0.05);
+        const spd = gs(360) / ENEMY_BULLET_SPEED_DIVISOR;
+        const vx = Math.cos(d) * spd;
+        const vy = Math.sin(d) * spd;
+        eBullets.push({ x: e.x, y: e.y + e.h * 0.2, vx, vy, r: gs(3.3) });
+        e.mgShotsRemaining -= 1;
+        e.mgShotTimer = e.mgShotInterval;
+      }
+    }
+
+    // Bắn loạt "cầu năng lượng" nhanh, bay xa
+    e.orbBurstCd -= dtEnemy;
+    if (e.orbBurstCd <= 0) {
+      const shots = 6;
+      for (let i = 0; i < shots; i++) {
+        const d = Math.atan2(player.y - (e.y + e.h * 0.25), player.x - e.x) + rand(-0.12, 0.12);
+        const spd = gs(300) / ENEMY_BULLET_SPEED_DIVISOR;
+        const vx = Math.cos(d) * spd;
+        const vy = Math.sin(d) * spd;
+        const r = gs(8);
+        const fuse = 2.6;
+        const explodeR = gs(70);
+        const minTravel = Math.min(cw, ch) * 0.45;
+        const friction = 0.9985;
+        eBullets.push({ type: "orb", x: e.x, y: e.y + e.h * 0.25, vx, vy, r, fuse, maxFuse: fuse, explodeR, minTravel, traveled: 0, friction });
+      }
+      e.orbBurstCd = rand(3.0, 4.2);
+    }
   }
 
   // Shooting
@@ -791,15 +937,19 @@ if (restartBtn) {
     // Update enemies
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
-      e.t += dtEnemy;
-      e.y += e.vy * dtEnemy;
-      e.x += Math.sin(e.t * 2.0) * e.amp * dtEnemy;
+      if (e.type === "miniBoss") {
+        updateMiniBoss(e, dtEnemy);
+      } else {
+        e.t += dtEnemy;
+        e.y += e.vy * dtEnemy;
+        e.x += Math.sin(e.t * 2.0) * e.amp * dtEnemy;
 
-      // Fire
-      e.fireTimer -= dtEnemy;
-      if (e.fireTimer <= 0) {
-        shootEnemy(e.x, e.y + e.h * 0.2);
-        e.fireTimer = e.fireCd;
+        // Fire
+        e.fireTimer -= dtEnemy;
+        if (e.fireTimer <= 0) {
+          shootEnemy(e.x, e.y + e.h * 0.2);
+          e.fireTimer = e.fireCd;
+        }
       }
 
       // Offscreen cleanup
@@ -932,7 +1082,7 @@ if (restartBtn) {
           if (e.hp <= 0) {
             explodeEnemy(e);
             enemies.splice(j, 1);
-            state.score += 100;
+            state.score += (e.type === "miniBoss" ? 800 : 100);
             updateHUD();
           }
           spawnExplosion(m.x, m.y, 24, "enemy");
@@ -985,7 +1135,7 @@ if (restartBtn) {
       if (e.hp <= 0) {
         explodeEnemy(e);
         enemies.splice(i, 1);
-        state.score += 100;
+        state.score += (e.type === "miniBoss" ? 800 : 100);
         updateHUD();
         continue;
       }
@@ -1412,6 +1562,10 @@ if (restartBtn) {
         deactivateTimeVibe();
       }
     }
+    // Cooldowns decrease in real-time (not affected by time slow)
+    if (state.mgCooldown > 0) state.mgCooldown = Math.max(0, state.mgCooldown - dt);
+    if (state.missileCooldown > 0) state.missileCooldown = Math.max(0, state.missileCooldown - dt);
+    updateCooldownUI();
     const tScale = state.timeVibeActive ? state.timeVibeFactor : 1;
 
     update(dt * tScale);
