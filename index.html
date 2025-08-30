@@ -16,21 +16,61 @@
         <div class="hpbar" aria-label="HP" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
           <div id="hpFill" class="hpbar-fill" style="width: 100%;"></div>
         </div>
+        <span id="hpText" class="hptext">100/100</span>
+        <button id="pauseBtn" class="icon-btn gear-btn" aria-label="Tạm dừng" title="Tạm dừng">⚙️</button>
       </div>
     </div>
 
     <div id="container">
       <canvas id="game"></canvas>
 
-      <div id="overlay" class="overlay">
+      <div id="overlay" class="overlay overlay-dark">
         <h1 id="title">Hạm Đội Xuất Kích</h1>
-        <button id="startBtn">Bắt đầu</button>
+        <button id="startBtn">Chiến đấu</button>
+        <button id="baseBtn">Căn Cứ & Nâng Cấp</button>
+      </div>
+
+      <div id="base" class="overlay hidden">
+        <div>
+          <h2>Căn Cứ</h2>
+          <p>Xu: <span id="coins">0</span></p>
+          <div class="mode-grid">
+            <button id="upHP">Nâng cấp Máu (+20) - 5 xu</button>
+            <button id="upDEF">Nâng cấp Phòng thủ (+1) - 5 xu</button>
+            <button id="upDMG">Nâng cấp Sát thương (+3 chính, +1 đệ tử) - 5 xu</button>
+            <button id="upDisc">Nâng cấp Đệ tử (+1 đệ tử, +1 tốc độ) - 2 xu</button>
+          </div>
+          <button id="toModeSelect">Chọn trận</button>
+          <button id="baseBack">Quay lại</button>
+        </div>
+      </div>
+
+      <div id="modeSelect" class="overlay hidden">
+        <div>
+          <h2>Chọn Trận</h2>
+          <div class="mode-grid">
+            <button id="modeBoss">Trận Trùm</button>
+            <button id="modeHard">Trận Khó</button>
+            <button id="modeNormal">Trận Thường</button>
+          </div>
+          <button id="modeBack">Quay lại</button>
+        </div>
       </div>
 
       <div id="gameover" class="overlay hidden">
         <h1>Thua cuộc!</h1>
         <p>Điểm của bạn: <span id="finalScore">0</span></p>
+        <p>Xu nhận: <span id="gainCoins">0</span></p>
         <button id="restartBtn">Chơi lại</button>
+        <button id="backToMenuBtn">Quay lại</button>
+      </div>
+
+      <div id="pauseMenu" class="overlay hidden">
+        <div>
+          <h2>Tạm dừng</h2>
+          <button id="resumeBtn">Quay lại</button>
+          <button id="exitBtn">Thoát trận</button>
+        </div>
       </div>
 
       <!-- On-screen controls -->
@@ -39,6 +79,7 @@
           <div class="joy-bg"></div>
           <div class="joy-stick"></div>
         </div>
+        <button id="discipleBtn" class="disciple-btn" aria-label="Đệ tử Laser (Phím 3)" title="Đệ tử Laser (Phím 3)">⚡️</button>
         <button id="missileBtn" class="missile-btn" aria-label="Tên lửa truy đuổi (Space)" title="Tên lửa truy đuổi (Space)">🚀</button>
         <button id="mgBtn" class="mg-btn" aria-label="Ngưng động thời gian (Phím 2)" title="Ngưng động thời gian (Phím 2)">⏳</button>
         <button id="fireBtn" class="fire-btn" aria-label="Bắn" title="Bắn">🔫</button>

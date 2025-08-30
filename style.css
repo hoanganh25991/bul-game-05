@@ -150,6 +150,33 @@ button:active {
   }
 }
 
+/* Mode select overlay */
+#modeSelect > div {
+  background: rgba(0,0,0,0.25);
+  padding: 16px 20px;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+#modeSelect h2 {
+  margin: 8px 0 14px;
+  font-size: 26px;
+  letter-spacing: 0.3px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+#modeSelect #modeBack {
+  margin-top: 8px;
+}
+@media (max-width: 480px) {
+  #modeSelect h2 { font-size: 20px; }
+  .mode-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+}
+
 /* On-screen controls */
 .controls {
   position: absolute;
@@ -297,6 +324,38 @@ button:active {
     0 0 0 6px rgba(46,230,255,0.18) inset;
 }
 
+/* Disciple Laser button */
+.disciple-btn {
+  position: absolute;
+  right: 24px;
+  bottom: 300px; /* Above the missile button */
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--btn-bg), rgba(255,255,255,0.04));
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #fff;
+  box-shadow:
+    0 10px 26px rgba(0,0,0,0.35),
+    inset 0 0 0 1px rgba(255,255,255,0.06);
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+.disciple-btn:hover {
+  background: linear-gradient(180deg, var(--btn-bg-hover), rgba(255,255,255,0.08));
+}
+.disciple-btn.active {
+  box-shadow:
+    0 12px 28px rgba(0,0,0,0.45),
+    0 0 0 6px rgba(46,230,255,0.18) inset;
+}
+
 /* Controls - Small screens */
 @media (max-width: 480px) {
   .joystick {
@@ -330,4 +389,56 @@ button:active {
     bottom: 180px; /* Above the MG button on small screens */
     font-size: 20px;
   }
+  .disciple-btn {
+    width: 64px;
+    height: 64px;
+    right: 16px;
+    bottom: 248px; /* Above the missile button on small screens */
+    font-size: 20px;
+  }
+}
+
+/* Overlay: đen hoàn toàn cho menu chính */
+.overlay-dark {
+  background: #000000 !important;
+}
+
+/* Ẩn HUD và controls khi ở menu chính */
+body.menu-active .hud,
+body.menu-active .controls {
+  display: none !important;
+}
+
+/* Nút biểu tượng (bánh răng) */
+.icon-btn {
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  margin-top: 0;
+}
+.gear-btn {
+  margin-left: 8px;
+}
+
+/* Pause menu card */
+#pauseMenu > div {
+  background: rgba(0,0,0,0.25);
+  padding: 16px 20px;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+#pauseMenu h2 {
+  margin: 8px 0 14px;
+  font-size: 26px;
+  letter-spacing: 0.3px;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+@media (max-width: 480px) {
+  #pauseMenu h2 { font-size: 20px; }
 }
