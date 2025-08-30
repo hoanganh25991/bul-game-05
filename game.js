@@ -312,6 +312,8 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
   const enemies = [];
   const missiles = []; // homing missiles
   const allyLasers = []; // friendly laser beams (disciple)
+  const dBullets = []; // drone bullets
+  const drones = []; // drone entities
   const particles = []; // explosion particles
   const dmgTexts = []; // floating damage numbers
   const turrets = []; // boss side turrets (machine gun)
@@ -502,20 +504,22 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     if (mgBtn) mgBtn.style.display = (state.timeVibeActive || (!state.missileActive && !state.timeVibeActive)) ? "" : "none";
   }
 
-  // Đệ tử Laser: Tia cỡ bự tự động ngắm hướng có nhiều địch nhất
-  function activateDiscipleLaser() {
+  // Drone Skill: spawn 1 drone orbiting 5s, then shoot 5s (cooldown handled by state.discipleCooldown)
+  function activateDrone() {
     if (!state.running || state.dead || state.paused) return;
     if (state.discipleCooldown > 0) return;
-    const len = Math.max(cw, ch) * 1.4; // chiều dài tia lớn
-    allyLasers.push({
-      type: "auto",
-      width: gs(60),
-      len,
-      phase: "charge",
-      charge: 0.2,
-      fire: 3,
-      angle: -Math.PI * 0.5, // mặc định hướng lên
-      turn: 5.0              // tốc độ xoay bám mục tiêu (rad/s)
+    const r = gs(70);
+    const ang = -Math.PI * 0.5;
+    drones.push({
+      phase: "orbit",
+      timer: 5,
+      ang,
+      angVel: 2.4,
+      r,
+      x: player.x + Math.cos(ang) * r,
+      y: player.y + Math.sin(ang) * r,
+      shootInterval: 0.2,
+      fireCd: 0
     });
     state.discipleCooldown = 10;
     if (discipleBtn) discipleBtn.classList.add("active");
@@ -562,22 +566,22 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
       }
     }
     if (discipleBtn) {
-      if (allyLasers.length > 0) {
+      if (drones.length > 0) {
         discipleBtn.textContent = DEFAULT_DISCIPLE_LABEL;
         discipleBtn.disabled = false;
-        discipleBtn.setAttribute("aria-label", "Đệ tử Laser (Phím 3)");
-        discipleBtn.title = "Đệ tử Laser (Phím 3)";
+        discipleBtn.setAttribute("aria-label", "Drone (Phím 3)");
+        discipleBtn.title = "Drone (Phím 3)";
       } else if (state.discipleCooldown > 0) {
         const s3 = Math.max(1, Math.ceil(state.discipleCooldown));
         discipleBtn.textContent = String(s3);
         discipleBtn.disabled = true;
-        discipleBtn.setAttribute("aria-label", `Đệ tử Laser (hồi ${s3}s)`);
-        discipleBtn.title = `Đệ tử Laser (hồi ${s3}s)`;
+        discipleBtn.setAttribute("aria-label", `Drone (hồi ${s3}s)`);
+        discipleBtn.title = `Drone (hồi ${s3}s)`;
       } else {
         discipleBtn.textContent = DEFAULT_DISCIPLE_LABEL;
         discipleBtn.disabled = false;
-        discipleBtn.setAttribute("aria-label", "Đệ tử Laser (Phím 3)");
-        discipleBtn.title = "Đệ tử Laser (Phím 3)";
+        discipleBtn.setAttribute("aria-label", "Drone (Phím 3)");
+        discipleBtn.title = "Drone (Phím 3)";
       }
     }
   }
@@ -603,7 +607,7 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
   if (discipleBtn) {
     const onDisc = (e) => {
       if (state.discipleCooldown > 0) { e.preventDefault(); return; }
-      activateDiscipleLaser();
+      activateDrone();
       e.preventDefault();
     };
     discipleBtn.addEventListener("pointerdown", onDisc, { passive: false });
@@ -620,7 +624,7 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
       case "ArrowUp": case "w": case "W": keys.up = true; e.preventDefault(); break;
       case "ArrowDown": case "s": case "S": keys.down = true; e.preventDefault(); break;
       case " ": case "Spacebar": if (!state.missileActive && state.missileCooldown <= 0) { activateMissiles(); } e.preventDefault(); break;
-      case "3": if (state.discipleCooldown <= 0) { activateDiscipleLaser(); } e.preventDefault(); break;
+      case "3": if (state.discipleCooldown <= 0) { activateDrone(); } e.preventDefault(); break;
     }
   });
   window.addEventListener("keyup", (e) => {
@@ -689,6 +693,8 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     eBullets.length = 0;
     missiles.length = 0;
     allyLasers.length = 0;
+    dBullets.length = 0;
+    drones.length = 0;
     particles.length = 0;
     turrets.length = 0;
     boss = null;
@@ -733,16 +739,13 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     gameoverEl.classList.remove("hidden");
   }
 
-  // Hiển thị chiến thắng màn 1
+  // Hiển thị chiến thắng: quay về trạng thái ban đầu (menu chính)
   function winGame() {
+    // Dừng game, cộng xu, rồi quay về menu ban đầu như lúc chưa chơi
     state.running = false;
-    state.won = true;
     state.isFiring = false;
-    finalScoreEl.textContent = state.score.toString();
     awardCoins();
-    const h1 = gameoverEl ? gameoverEl.querySelector("h1") : null;
-    if (h1) h1.textContent = "Chiến thắng! Bạn đã hoàn thành nhiệm vụ";
-    if (gameoverEl) gameoverEl.classList.remove("hidden");
+    backToMenu();
   }
 
 if (startBtn) {
@@ -1020,7 +1023,7 @@ if (restartBtn) {
   }
   function shootPlayer() {
     const playerDmg = 1 + (state.dmgLevel || 0) * 3;
-    shootFrom(player.x, player.y, player, gs(84), playerDmg);
+    shootFrom(player.x, player.y, player, gs(60), playerDmg);
   }
 
   function shootEnemy(ex, ey) {
@@ -1180,6 +1183,44 @@ if (restartBtn) {
     }
   }
 
+  function drawDBullets() {
+    for (let b of dBullets) {
+      const g = ctx.createRadialGradient(b.x, b.y, Math.max(1, b.r * 0.25), b.x, b.y, b.r + gs(8));
+      g.addColorStop(0, "rgba(219,234,254,1)");
+      g.addColorStop(1, "rgba(59,130,246,0.35)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r + gs(2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawDrones() {
+    for (let d of drones) {
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      const g = ctx.createRadialGradient(0, 0, 3, 0, 0, 14);
+      g.addColorStop(0, "rgba(46,230,255,0.3)");
+      g.addColorStop(1, "rgba(46,230,255,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#c9fbff";
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#8fe4ff";
+      ctx.beginPath();
+      ctx.arc(0, -2, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
   function drawAllyLasers() {
     for (let L of allyLasers) {
       if (L.type === "auto") {
@@ -1270,7 +1311,7 @@ if (restartBtn) {
 
         ctx.restore();
       } else if (L.type === "ring") {
-        const cx = player.x, cy = player.y;
+        const cx = (L.cx ?? player.x), cy = (L.cy ?? player.y);
         const r = L.r;
         ctx.save();
 
@@ -1649,7 +1690,117 @@ if (restartBtn) {
       }
     }
 
-    // Update ally lasers (disciple)
+    // Update drones (orbit then shoot)
+  for (let i = drones.length - 1; i >= 0; i--) {
+    const d = drones[i];
+    const orbitR = d.r || gs(70);
+    d.ang = (d.ang || -Math.PI * 0.5) + (d.angVel || 2.4) * dt;
+    const cx = player.x, cy = player.y;
+    d.x = cx + Math.cos(d.ang) * orbitR;
+    d.y = cy + Math.sin(d.ang) * orbitR;
+
+    d.timer -= dt;
+    if (d.phase === "orbit") {
+      if (d.timer <= 0) {
+        d.phase = "shoot";
+        d.timer = 5;
+        d.fireCd = 0;
+      }
+    } else {
+      d.fireCd = (d.fireCd || 0) - dt;
+      if (d.fireCd <= 0) {
+        let targetX = null, targetY = null, best = Infinity;
+        if (boss) {
+          const d2b = dist2(d.x, d.y, boss.x, boss.y);
+          if (d2b < best) { best = d2b; targetX = boss.x; targetY = boss.y; }
+        }
+        for (let k = 0; k < enemies.length; k++) {
+          const e = enemies[k];
+          const dd = dist2(d.x, d.y, e.x, e.y);
+          if (dd < best) { best = dd; targetX = e.x; targetY = e.y; }
+        }
+        const angShoot = (targetX !== null) ? Math.atan2(targetY - d.y, targetX - d.x) : -Math.PI * 0.5;
+        const spd = gs(220);
+        dBullets.push({ x: d.x, y: d.y, vx: Math.cos(angShoot) * spd, vy: Math.sin(angShoot) * spd, r: gs(4) });
+        d.fireCd = d.shootInterval || 0.2;
+      }
+      if (d.timer <= 0) {
+        drones.splice(i, 1);
+        continue;
+      }
+    }
+  }
+
+  // Update drone bullets
+  for (let i = dBullets.length - 1; i >= 0; i--) {
+    const b = dBullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (b.y < -20 || b.y > ch + 20 || b.x < -20 || b.x > cw + 20) {
+      dBullets.splice(i, 1);
+      continue;
+    }
+    let hit = false;
+    for (let j = enemies.length - 1; j >= 0; j--) {
+      const e = enemies[j];
+      const rr = (e.r + b.r) * (e.r + b.r);
+      if (dist2(e.x, e.y, b.x, b.y) <= rr) {
+        e.hp -= 1;
+        spawnDamageText(b.x, b.y, 1, "#93c5fd");
+        if (e.hp <= 0) {
+          explodeEnemy(e);
+          enemies.splice(j, 1);
+          state.score += (e.type === "miniBoss" ? 800 : 100);
+          updateHUD();
+        }
+        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: e.x, cy: e.y });
+        dBullets.splice(i, 1);
+        hit = true;
+        break;
+      }
+    }
+    if (hit) continue;
+
+    for (let j = turrets.length - 1; j >= 0; j--) {
+      const t = turrets[j];
+      const rrT = (t.r + b.r) * (t.r + b.r);
+      if (dist2(t.x, t.y, b.x, b.y) <= rrT) {
+        t.hp -= 1;
+        spawnDamageText(b.x, b.y, 1, "#93c5fd");
+        if (t.hp <= 0) {
+          spawnExplosion(t.x, t.y, 60, "enemy");
+          turrets.splice(j, 1);
+          state.score += 300;
+          updateHUD();
+        }
+        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: t.x, cy: t.y });
+        dBullets.splice(i, 1);
+        hit = true;
+        break;
+      }
+    }
+    if (hit) continue;
+
+    if (boss) {
+      const rrB = (boss.r + b.r) * (boss.r + b.r);
+      if (dist2(boss.x, boss.y, b.x, b.y) <= rrB) {
+        boss.hp -= 1;
+        spawnDamageText(b.x, b.y, 1, "#93c5fd");
+        if (boss.hp <= 0) {
+          spawnExplosion(boss.x, boss.y, 200, "enemy");
+          boss = null;
+          turrets.length = 0;
+          state.score += 2000;
+          updateHUD();
+        }
+        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: b.x, cy: b.y });
+        dBullets.splice(i, 1);
+        continue;
+      }
+    }
+  }
+
+  // Update ally lasers (disciple)
     for (let i = allyLasers.length - 1; i >= 0; i--) {
       const L = allyLasers[i];
       if (L.phase === "charge") {
@@ -1854,10 +2005,10 @@ if (restartBtn) {
         }
 
       } else if (L.type === "ring") {
-        // Vòng tròn xoay quanh người chơi
+        // Vòng tròn xoay quanh vị trí chỉ định (mặc định quanh người chơi)
         L.angle = (L.angle || 0) + (L.angVel || 4.0) * dt;
 
-        const cx = player.x, cy = player.y;
+        const cx = (L.cx ?? player.x), cy = (L.cy ?? player.y);
         const r = L.r;
         const th = L.hitTh || gs(22);
         const rMin2 = Math.max(0, (r - th) * (r - th));
@@ -1979,7 +2130,7 @@ if (restartBtn) {
         allyLasers.splice(i, 1);
       }
     }
-    if (discipleBtn && allyLasers.length === 0) {
+    if (discipleBtn && allyLasers.length === 0 && drones.length === 0) {
       discipleBtn.classList.remove("active");
     }
 
@@ -2177,6 +2328,9 @@ if (restartBtn) {
       }
     }
 
+    // Drones and their bullets
+    drawDBullets();
+    drawDrones();
     // Friendly lasers (disciple)
     drawAllyLasers();
 
