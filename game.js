@@ -7,6 +7,7 @@
   // Early declarations to avoid TDZ before resize() calls updateScale
   var scale = 1;
   const BASE_H = 900;
+  const BASE_W = 1600; // Base width for responsive content scaling (fit to screen)
   const TIME_SCALE = 1; // Base speed (no global slow); temporary slow-mo handled via time-vibe
   // Tuning multipliers/divisors
   // - FIRE_RATE_MULTIPLIER: tăng tốc độ bắn của người chơi lên gấp 5 lần (giảm thời gian hồi)
@@ -15,6 +16,7 @@
   const FIRE_RATE_MULTIPLIER = 5;
   const ENEMY_SPEED_DIVISOR = 5;
   const ENEMY_BULLET_SPEED_DIVISOR = 5;
+const LASER_SKILL_DPS = 1000000; // DPS for drone-created laser rings
 
   // DOM
   const canvas = document.getElementById("game");
@@ -35,6 +37,9 @@
   const upDEFBtn = document.getElementById("upDEF");
   const upDMGBtn = document.getElementById("upDMG");
   const upDiscBtn = document.getElementById("upDisc");
+  const upSPDBtn = document.getElementById("upSPD");
+  const upEXPBtn = document.getElementById("upEXP");
+  const upCOLBtn = document.getElementById("upCOL");
   const toModeSelectBtn = document.getElementById("toModeSelect");
   const baseBackBtn = document.getElementById("baseBack");
   const baseBtn = document.getElementById("baseBtn");
@@ -183,7 +188,14 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     return gs(2.8 + d * 0.25);
   }
   function updateScale() {
-    scale = clamp(ch / BASE_H, 0.7, 1.6);
+    // Fit content scale to screen using both dimensions to keep proportions consistent
+    const sH = ch / BASE_H;
+    const sW = cw / BASE_W;
+    scale = clamp(Math.min(sW, sH), 0.6, 2.0);
+    // Expose scale to CSS so HUD/controls can scale accordingly
+    if (document && document.documentElement && document.documentElement.style) {
+      document.documentElement.style.setProperty("--ui-scale", String(scale));
+    }
   }
   function getHudHeight() {
     const hud = document.querySelector(".hud");
@@ -228,13 +240,17 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     missileCooldown: 0,
     discipleCooldown: 0,
     shieldActive: false,
-    coins: 100,
+    shieldTimer: 0,
+    coins: 200,
     hpBonus: 0,
     maxLives: MAX_LIVES,
     defense: 0,
     dmgLevel: 0,
     discipleCount: 0,
     discipleSpeedLevel: 3,
+    moveSpeedMul: 1,
+    expLevel: 0,
+    collectLevel: 0,
   };
 
   // Mode tuning (defaults)
@@ -362,27 +378,24 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     }
   }
 
-  function updateCoinsUI() { if (coinsEl) coinsEl.textContent = String(state.coins || 0); }
+  function updateCoinsUI() {
+    if (coinsEl) coinsEl.textContent = String(state.coins || 0);
+  }
   function refreshUpgradeUI() {
-    const baseLives = (state.tuning && state.tuning.playerLives) ? state.tuning.playerLives : MAX_LIVES;
-    const maxL = baseLives + (state.hpBonus || 0);
-    const def = state.defense || 0;
-    const dmgLv = state.dmgLevel || 0;
-    const dmgMain = 1 + 3 * dmgLv;
-    const dmgDisc = 1 + dmgLv;
-    const discCnt = state.discipleCount || 0;
-    const discSpd = state.discipleSpeedLevel || 3;
-
-    if (upHPBtn) upHPBtn.textContent = `Nâng cấp Máu (+20) - 5 xu | Max HP: ${maxL}`;
-    if (upDEFBtn) upDEFBtn.textContent = `Nâng cấp Phòng thủ (+1) - 5 xu | DEF: ${def}`;
-    if (upDMGBtn) upDMGBtn.textContent = `Nâng cấp Sát thương (+3 chính, +1 đệ tử) - 5 xu | DMG Chính: ${dmgMain}, Đệ tử: ${dmgDisc}`;
-    if (upDiscBtn) upDiscBtn.textContent = `Nâng cấp Đệ tử (+1 đệ tử, +1 tốc độ) - 2 xu | Đệ tử: ${discCnt}, Tốc độ: ${discSpd}`;
+    if (upSPDBtn) upSPDBtn.textContent = "Nâng cấp tốc độ (10 xu)";
+    if (upHPBtn) upHPBtn.textContent = "Nâng cấp máu (3 xu)";
+    if (upCOLBtn) upCOLBtn.textContent = "Nâng cấp thu gom (30 xu)";
+    if (upEXPBtn) upEXPBtn.textContent = "Nâng cấp kinh nghiệm (15 xu)";
+    if (upDiscBtn) upDiscBtn.textContent = "Nâng cấp đệ tử (50 xu)";
+    if (upDEFBtn) upDEFBtn.textContent = "Nâng cấp phòng thủ (5 xu)";
   }
   function awardCoins() {
     let gain = 0;
     if (state.mode === "normal") gain = 20;
     else if (state.mode === "hard") gain = 50;
     else if (state.mode === "boss") gain = 100;
+    const mul = 1 + 0.1 * (state.collectLevel || 0);
+    gain = Math.round(gain * mul);
     state.coins = (state.coins || 0) + gain;
     if (gainCoinsEl) gainCoinsEl.textContent = String(gain);
     updateCoinsUI();
@@ -397,28 +410,9 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
   window.addEventListener("contextmenu", (e) => e.preventDefault());
 
   // Desktop mouse controls on canvas: move with mouse, hold to fire
-  canvas.addEventListener("pointermove", (e) => {
-    if (e.pointerType === "mouse" && !state.dead) {
-      const margin = gs(16);
-      player.x = clamp(e.clientX, margin, cw - margin);
-      player.y = clamp(e.clientY, margin + getHudHeight(), ch - margin);
-    }
-  }, { passive: true });
-
-  canvas.addEventListener("pointerdown", (e) => {
-    if (e.pointerType === "mouse") {
-      state.isFiring = true;
-      e.preventDefault();
-    }
-  }, { passive: false });
-
-  window.addEventListener("pointerup", (e) => {
-    if (e.pointerType === "mouse") {
-      // Release firing when mouse button released (unless fire button held)
-      state.isFiring = heldFirePointers.size > 0;
-    }
-  }, { passive: true });
-
+  
+  
+  
   // Remove on-screen joystick: no-op
 
   // Setup fire button to toggle continuous firing while pressed
@@ -521,6 +515,17 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
       shootInterval: 0.2,
       fireCd: 0
     });
+    state.discipleCooldown = 5;
+    if (discipleBtn) discipleBtn.classList.add("active");
+  }
+
+  // Shield Ring activation: 10s invulnerability with player-centered ring
+  function activateShieldRing() {
+    if (!state.running || state.dead || state.paused) return;
+    if (state.shieldActive || state.discipleCooldown > 0) return;
+    state.shieldActive = true;
+    state.shieldTimer = 5;
+    allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 5, phase: "fire", hitTh: gs(18), shield: true });
     state.discipleCooldown = 10;
     if (discipleBtn) discipleBtn.classList.add("active");
   }
@@ -566,22 +571,17 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
       }
     }
     if (discipleBtn) {
-      if (drones.length > 0) {
-        discipleBtn.textContent = DEFAULT_DISCIPLE_LABEL;
-        discipleBtn.disabled = false;
-        discipleBtn.setAttribute("aria-label", "Drone (Phím 3)");
-        discipleBtn.title = "Drone (Phím 3)";
-      } else if (state.discipleCooldown > 0) {
+      if (state.discipleCooldown > 0) {
         const s3 = Math.max(1, Math.ceil(state.discipleCooldown));
         discipleBtn.textContent = String(s3);
         discipleBtn.disabled = true;
-        discipleBtn.setAttribute("aria-label", `Drone (hồi ${s3}s)`);
-        discipleBtn.title = `Drone (hồi ${s3}s)`;
+        discipleBtn.setAttribute("aria-label", `Đệ tử Laser (hồi ${s3}s)`);
+        discipleBtn.title = `Đệ tử Laser (hồi ${s3}s)`;
       } else {
         discipleBtn.textContent = DEFAULT_DISCIPLE_LABEL;
         discipleBtn.disabled = false;
-        discipleBtn.setAttribute("aria-label", "Drone (Phím 3)");
-        discipleBtn.title = "Drone (Phím 3)";
+        discipleBtn.setAttribute("aria-label", "Đệ tử Laser (Phím 3)");
+        discipleBtn.title = "Đệ tử Laser (Phím 3)";
       }
     }
   }
@@ -686,6 +686,7 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
     state.missileCooldown = 0;
     state.discipleCooldown = 0;
     state.shieldActive = false;
+    state.shieldTimer = 0;
     updateUltButtonsVisibility();
     updateCooldownUI();
     enemies.length = 0;
@@ -741,6 +742,7 @@ const DEFAULT_DISCIPLE_LABEL = "⚡️";
 
   // Hiển thị chiến thắng: quay về trạng thái ban đầu (menu chính)
   function winGame() {
+    state.won = true;
     // Dừng game, cộng xu, rồi quay về menu ban đầu như lúc chưa chơi
     state.running = false;
     state.isFiring = false;
@@ -822,24 +824,26 @@ if (restartBtn) {
   });
 
   // Upgrade buttons and spending
-  function trySpend(cost) {
+  function trySpendXu(cost) {
     if ((state.coins || 0) < cost) return false;
     state.coins -= cost;
     updateCoinsUI();
     return true;
   }
+  // Backwards compat if any leftover calls
+  function trySpend(cost) { return trySpendXu(cost); }
   if (upHPBtn) upHPBtn.addEventListener("click", () => {
-    if (!trySpend(5)) return;
-    state.hpBonus = (state.hpBonus || 0) + 20;
-    // Cộng trực tiếp máu hiện tại để thấy hiệu quả ngay lập tức
+    if (!trySpendXu(3)) return;
+    state.hpBonus = (state.hpBonus || 0) + 1;
+    // Cộng trực tiếp +1 máu hiện tại để thấy hiệu quả ngay lập tức
     const baseLives = (state.tuning && state.tuning.playerLives) ? state.tuning.playerLives : MAX_LIVES;
     const newMax = baseLives + (state.hpBonus || 0);
-    state.lives = Math.min(newMax, (state.lives || 0) + 20);
+    state.lives = Math.min(newMax, (state.lives || 0) + 1);
     refreshUpgradeUI();
     updateHUD();
   });
   if (upDEFBtn) upDEFBtn.addEventListener("click", () => {
-    if (!trySpend(5)) return;
+    if (!trySpendXu(5)) return;
     state.defense = (state.defense || 0) + 1;
     refreshUpgradeUI();
     updateHUD();
@@ -851,10 +855,27 @@ if (restartBtn) {
     updateHUD();
   });
   if (upDiscBtn) upDiscBtn.addEventListener("click", () => {
-    if (!trySpend(2)) return;
+    if (!trySpendXu(50)) return;
     state.discipleCount = (state.discipleCount || 0) + 1;
-    state.discipleSpeedLevel = (state.discipleSpeedLevel || 3) + 1;
     rebuildWingmen();
+    refreshUpgradeUI();
+    updateHUD();
+  });
+  if (upSPDBtn) upSPDBtn.addEventListener("click", () => {
+    if (!trySpendXu(10)) return;
+    state.moveSpeedMul = (state.moveSpeedMul || 1) + 0.1;
+    refreshUpgradeUI();
+    updateHUD();
+  });
+  if (upEXPBtn) upEXPBtn.addEventListener("click", () => {
+    if (!trySpendXu(15)) return;
+    state.expLevel = (state.expLevel || 0) + 1;
+    refreshUpgradeUI();
+    updateHUD();
+  });
+  if (upCOLBtn) upCOLBtn.addEventListener("click", () => {
+    if (!trySpendXu(30)) return;
+    state.collectLevel = (state.collectLevel || 0) + 1;
     refreshUpgradeUI();
     updateHUD();
   });
@@ -1027,12 +1048,14 @@ if (restartBtn) {
   }
 
   function shootEnemy(ex, ey) {
-    // aim at player with some slight spread
+    // twin-shot like player, aimed at player, enemy-colored bullets
     const d = Math.atan2(player.y - ey, player.x - ex) + rand(-0.06, 0.06);
     const spd = (gs(280 + getDifficulty() * 90) / ENEMY_BULLET_SPEED_DIVISOR) * (state.tuning.enemyBulletSpeedMul || 1);
     const vx = Math.cos(d) * spd;
     const vy = Math.sin(d) * spd;
-    eBullets.push({ x: ex, y: ey, vx, vy, r: gs(3.5) });
+    const off = gs(6);
+    eBullets.push({ x: ex - off, y: ey, vx, vy, r: gs(3.5) });
+    eBullets.push({ x: ex + off, y: ey, vx, vy, r: gs(3.5) });
   }
 
   // Spawn a homing missile (from any origin; defaults to player)
@@ -1394,7 +1417,7 @@ if (restartBtn) {
     // Player movement via on-screen joystick or keyboard
     const margin = gs(16);
     if (!state.dead) {
-      const spd = gs(420);
+      const spd = gs(420) * (state.moveSpeedMul || 1);
       // Joystick
       if (joy.active) {
         player.x += joy.x * spd * dt;
@@ -1428,7 +1451,7 @@ if (restartBtn) {
     player.fireCooldown -= dt;
     if (state.isFiring && player.fireCooldown <= 0) {
       shootPlayer();
-      const discSpeed = gs(60) * (state.discipleSpeedLevel || 3);
+      const discSpeed = gs(60);
       const discDmg = 1 + (state.dmgLevel || 0);
       for (let wm of wingmen) {
         shootFrom(wm.x, wm.y, player, discSpeed, discDmg);
@@ -1679,6 +1702,10 @@ if (restartBtn) {
             turrets.length = 0;
             state.score += 2000;
             updateHUD();
+            if (!state.won) {
+              winGame();
+              return;
+            }
           }
           continue;
         }
@@ -1709,19 +1736,8 @@ if (restartBtn) {
     } else {
       d.fireCd = (d.fireCd || 0) - dt;
       if (d.fireCd <= 0) {
-        let targetX = null, targetY = null, best = Infinity;
-        if (boss) {
-          const d2b = dist2(d.x, d.y, boss.x, boss.y);
-          if (d2b < best) { best = d2b; targetX = boss.x; targetY = boss.y; }
-        }
-        for (let k = 0; k < enemies.length; k++) {
-          const e = enemies[k];
-          const dd = dist2(d.x, d.y, e.x, e.y);
-          if (dd < best) { best = dd; targetX = e.x; targetY = e.y; }
-        }
-        const angShoot = (targetX !== null) ? Math.atan2(targetY - d.y, targetX - d.x) : -Math.PI * 0.5;
-        const spd = gs(220);
-        dBullets.push({ x: d.x, y: d.y, vx: Math.cos(angShoot) * spd, vy: Math.sin(angShoot) * spd, r: gs(4) });
+        // Drone fires a small laser ring (stationary) that lasts 2 seconds
+        allyLasers.push({ type: "ring", r: gs(34), angle: 0, fire: 2, phase: "fire", hitTh: gs(10), cx: d.x, cy: d.y, dps: LASER_SKILL_DPS });
         d.fireCd = d.shootInterval || 0.2;
       }
       if (d.timer <= 0) {
@@ -1753,7 +1769,7 @@ if (restartBtn) {
           state.score += (e.type === "miniBoss" ? 800 : 100);
           updateHUD();
         }
-        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: e.x, cy: e.y });
+        allyLasers.push({ type: "ring", r: gs(34), angle: 0, fire: 2, phase: "fire", hitTh: gs(10), cx: e.x, cy: e.y, dps: LASER_SKILL_DPS });
         dBullets.splice(i, 1);
         hit = true;
         break;
@@ -1773,7 +1789,7 @@ if (restartBtn) {
           state.score += 300;
           updateHUD();
         }
-        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: t.x, cy: t.y });
+        allyLasers.push({ type: "ring", r: gs(34), angle: 0, fire: 2, phase: "fire", hitTh: gs(10), cx: t.x, cy: t.y, dps: LASER_SKILL_DPS });
         dBullets.splice(i, 1);
         hit = true;
         break;
@@ -1792,8 +1808,12 @@ if (restartBtn) {
           turrets.length = 0;
           state.score += 2000;
           updateHUD();
+          if (!state.won) {
+            winGame();
+            return;
+          }
         }
-        allyLasers.push({ type: "ring", r: gs(70), angle: 0, fire: 3, phase: "fire", hitTh: gs(18), cx: b.x, cy: b.y });
+        allyLasers.push({ type: "ring", r: gs(34), angle: 0, fire: 2, phase: "fire", hitTh: gs(10), cx: b.x, cy: b.y, dps: LASER_SKILL_DPS });
         dBullets.splice(i, 1);
         continue;
       }
@@ -2041,7 +2061,7 @@ if (restartBtn) {
           const t = turrets[j];
           const d2 = dist2(cx, cy, t.x, t.y);
           if (d2 >= rMin2 && d2 <= rMax2) {
-            t.hp -= 40 * dt;
+            t.hp -= (L.dps || LASER_SKILL_DPS) * dt;
             if (t.hp <= 0) {
               spawnExplosion(t.x, t.y, 60, "enemy");
               turrets.splice(j, 1);
@@ -2055,7 +2075,7 @@ if (restartBtn) {
         if (boss) {
           const d2B = dist2(cx, cy, boss.x, boss.y);
           if (d2B >= rMin2 && d2B <= rMax2) {
-            boss.hp -= 300 * dt;
+            boss.hp -= (L.dps || LASER_SKILL_DPS) * dt;
             if (boss.hp <= 0) {
               spawnExplosion(boss.x, boss.y, 200, "enemy");
               boss = null;
@@ -2126,11 +2146,11 @@ if (restartBtn) {
 
       // Hết thời gian hoạt động
       if (L.fire <= 0) {
-        if (L.type === "spokes") state.shieldActive = false;
+        if (L.shield) state.shieldActive = false;
         allyLasers.splice(i, 1);
       }
     }
-    if (discipleBtn && allyLasers.length === 0 && drones.length === 0) {
+    if (discipleBtn && state.discipleCooldown <= 0) {
       discipleBtn.classList.remove("active");
     }
 
@@ -2321,9 +2341,13 @@ if (restartBtn) {
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.fillStyle = "#3b82f6";
+        const g = ctx.createRadialGradient(b.x, b.y, Math.max(1, b.r * 0.3), b.x, b.y, b.r + gs(6));
+        g.addColorStop(0, "rgba(219,234,254,1)");
+        g.addColorStop(0.6, "rgba(59,130,246,0.85)");
+        g.addColorStop(1, "rgba(59,130,246,0.05)");
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.arc(b.x, b.y, b.r + gs(3), 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -2823,6 +2847,18 @@ if (restartBtn) {
     if (state.mgCooldown > 0) state.mgCooldown = Math.max(0, state.mgCooldown - dt);
     if (state.missileCooldown > 0) state.missileCooldown = Math.max(0, state.missileCooldown - dt);
     if (state.discipleCooldown > 0) state.discipleCooldown = Math.max(0, state.discipleCooldown - dt);
+    // Đếm lùi vòng bảo hộ theo thời gian thực
+    if (state.shieldActive) {
+      state.shieldTimer = Math.max(0, state.shieldTimer - dt);
+      if (state.shieldTimer <= 0) {
+        state.shieldActive = false;
+        for (let i = allyLasers.length - 1; i >= 0; i--) {
+          const L = allyLasers[i];
+          if (L && L.shield) allyLasers.splice(i, 1);
+        }
+        if (discipleBtn) discipleBtn.classList.remove("active");
+      }
+    }
     updateCooldownUI();
     const tScale = state.timeVibeActive ? state.timeVibeFactor : 1;
 
